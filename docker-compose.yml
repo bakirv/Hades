@@ -242,8 +242,6 @@ services:
       - frontend
     ports:
       - "${DASHBOARD_PORT:-5173}:5173"
-    environment:
-      VITE_API_BASE_URL: http://localhost:${API_PORT:-8000}
     healthcheck:
       <<: *healthcheck-defaults
       test: ["CMD-SHELL", "wget -q --spider http://localhost:5173/ || exit 1"]

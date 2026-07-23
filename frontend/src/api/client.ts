@@ -1,7 +1,13 @@
 // Typed API client. All transport concerns (REST + WebSocket URLs) live here so
 // screens depend only on typed methods, never on fetch details.
 
-const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
+// VITE_API_BASE_URL is baked in at build time, so a fixed value (e.g.
+// "http://localhost:8000") only works when the dashboard is opened from the same
+// host the API runs on. Absent an explicit override, resolve the API against
+// whatever host served this page (LAN IP, tailscale name, etc.) at runtime instead,
+// so one build works from any machine on the network.
+const BASE_URL =
+  import.meta.env.VITE_API_BASE_URL ?? `${window.location.protocol}//${window.location.hostname}:8000`;
 
 export interface Meta {
   name: string;
