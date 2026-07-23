@@ -11,7 +11,7 @@ from __future__ import annotations
 from enum import StrEnum
 from functools import lru_cache
 
-from pydantic import BaseModel, Field, PostgresDsn, RedisDsn, computed_field
+from pydantic import BaseModel, Field, PostgresDsn, RedisDsn, computed_field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -167,6 +167,17 @@ class RpcSettings(_Section):
     model_config = SettingsConfigDict(env_prefix="RPC_", extra="ignore", env_file=".env")
 
     endpoints: list[RpcEndpointConfig] = Field(default_factory=list)
+
+    @field_validator("endpoints", mode="before")
+    @classmethod
+    def _empty_env_value_means_no_endpoints(cls, value: object) -> object:
+        # RPC_ENDPOINTS="" (unset in .env.example) is not valid JSON; pydantic-settings
+        # only applies the field default when the env var is absent entirely, not when
+        # it is present but blank. Treat blank the same as absent.
+        if isinstance(value, str) and value.strip() == "":
+            return []
+        return value
+
     # Health scoring / failover tuning.
     request_timeout_seconds: float = 12.0
     max_attempts: int = 4  # across providers, per logical call
