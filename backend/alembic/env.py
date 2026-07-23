@@ -14,12 +14,11 @@ from alembic import context
 from sqlalchemy.ext.asyncio import async_engine_from_config
 from sqlalchemy.pool import NullPool
 
-from hades.shared_kernel.config import get_settings
-from hades.shared_kernel.persistence.database import Base
-
 # Importing the models package registers every table on ``Base.metadata`` so
 # autogenerate sees the full schema.
-import hades.shared_kernel.persistence.models  # noqa: E402,F401
+import hades.shared_kernel.persistence.models  # noqa: F401
+from hades.shared_kernel.config import get_settings
+from hades.shared_kernel.persistence.database import Base
 
 config = context.config
 if config.config_file_name is not None:
