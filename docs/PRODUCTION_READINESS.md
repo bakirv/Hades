@@ -21,7 +21,7 @@ Companion documents: the living reference [`../hades.md`](../hades.md), the arch
 | | |
 |---|---|
 | Overall posture | **READY (paper) · NOT-LIVE by construction** |
-| Backend health | **378 tests passing**, `mypy --strict` clean (407 files), `ruff` clean (0 findings), suite runs **warnings-as-errors** |
+| Backend health | **379 tests passing**, `mypy --strict` clean (407 files), `ruff` clean (0 findings), suite runs **warnings-as-errors** |
 | Trading mode | Paper only; live hard-gated (env gate × 2 + readiness checklist + explicit confirm + authenticated operator) and unbuildable (no live adapters) |
 | Deployment | Turnkey: `git clone → configure .env → docker compose up -d` (schema auto-migrated) |
 | Codebase | ~40.6k LOC · 18 bounded contexts · 57 tables / 7 migrations · React dashboard · Docker/Compose · Prometheus/Grafana |

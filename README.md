@@ -16,7 +16,7 @@ verifiably enabled.
 
 > **Status:** `v0.10.0` · Phase 11 (Production Hardening). **Paper trading only** — live
 > execution is hard-gated OFF and structurally impossible today (no live adapters are wired).
-> Backend: **378 tests green**, `mypy --strict` clean (407 files), `ruff` clean.
+> Backend: **379 tests green**, `mypy --strict` clean (407 files), `ruff` clean.
 
 ---
 

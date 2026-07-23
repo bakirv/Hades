@@ -6,4 +6,8 @@ Domain-Driven Design, Event Sourcing and CQRS. Each bounded context under
 one process wired together at ``hades.bootstrap``.
 """
 
-__version__ = "0.3.0"
+# Single source of truth for the platform version. ``pyproject.toml`` derives its
+# ``version`` from this attribute (``[tool.setuptools.dynamic]``), so the packaged
+# metadata, the runtime the API exposes (``/api/v1/status``, ``/version``, the WS
+# handshake, OpenAPI) and the docs can never drift apart again. Bump it here only.
+__version__ = "0.10.0"

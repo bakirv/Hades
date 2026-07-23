@@ -1445,6 +1445,19 @@ full gate (`ruff` + `mypy --strict` + `pytest`). The closing report lives in
   fails the build; the one third-party deprecation we don't control (Starlette TestClient's
   httpx import) is explicitly allow-listed (L3).
 - `pyproject` version synced to the documented release `0.10.0` (L4).
+- **Runtime version drift closed (L4, completion — 2026-07-23).** Stage 2 synced
+  `pyproject` but the *runtime* string in `hades/__init__.py` was still the stale `0.3.0`,
+  so **every** API surface (`/api/v1/version`, `/api/v1/status`, `/api/v1/info`, the WS
+  handshake and OpenAPI) advertised the wrong version while the package was `0.10.0`.
+  `hades.__version__` is now the **single source of truth** and `pyproject` *derives* its
+  version from it via `[tool.setuptools.dynamic]` (`version = {attr = "hades.__version__"}`),
+  so the packaged metadata, the runtime and the docs can no longer diverge — bump one place.
+  *Alternatives rejected:* hardcoding `0.10.0` a second time in `__init__.py` (re-creates the
+  drift) and reading `importlib.metadata` at runtime (fails when the package is run from source,
+  as the test suite does). *Validated:* `setuptools` resolves `0.10.0` from the attr and a
+  Docker-context-simulated `pip install .` produces the correct metadata; regression
+  `test_all_meta_surfaces_report_the_single_source_of_truth_version` pins all three HTTP
+  surfaces to `__version__`. Suite now **379** tests.
 
 **Money-safety / correctness.**
 - **Realized-PnL accounting fixed (M6).** On close, PnL is now net of **both** round-trip
@@ -1483,7 +1496,7 @@ items are large, are *not* blockers for the paper-only posture, and — critical
 
 ## 7. Testing
 
-`backend/tests` (378 tests, all green; `mypy --strict` clean; `ruff` clean; suite runs
+`backend/tests` (379 tests, all green; `mypy --strict` clean; `ruff` clean; suite runs
 warnings-as-errors):
 - Phase 1: `test_value_objects`, `test_event_infrastructure`, `test_position_aggregate`,
   `test_api_health` (**asserts a fresh instance is never live**).
@@ -1676,7 +1689,7 @@ Earlier pending items remain relevant:
   findings cleared (PEP-695 generics, `Field(default_factory=dict)`, Unicode dashes,
   version sync) and the suite now runs **warnings-as-errors**. Deployment made turnkey:
   a one-shot **`migrate`** service brings the schema to head before any app service, so
-  `docker compose up -d` needs no manual migration step. Full gate green: **378 tests**,
+  `docker compose up -d` needs no manual migration step. Full gate green: **379 tests**,
   `mypy --strict` clean (407 files), `ruff` clean. LIVE-gating durability items
   (H1/H2/H3/H5/M2 + live adapters) consciously deferred to Hades v2 — they cannot be
   *validated* without a live stack, and shipping them unvalidated would lower quality.

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
+from hades import __version__
 from hades.api.app import create_app
 
 
@@ -13,6 +14,17 @@ def test_meta_endpoints_answer() -> None:
         info = client.get("/api/v1/info").json()
         assert "engine" in info["services"]
         assert "scanner" in info["contexts"]
+
+
+def test_all_meta_surfaces_report_the_single_source_of_truth_version() -> None:
+    # Guards against a version string being re-hardcoded in any API surface and
+    # drifting from ``hades.__version__`` (the single source of truth that
+    # ``pyproject`` derives its packaged version from). Regression for the stale
+    # "0.3.0" the whole API exposed while the package was already 0.10.0.
+    with TestClient(create_app()) as client:
+        assert client.get("/api/v1/version").json()["version"] == __version__
+        assert client.get("/api/v1/status").json()["version"] == __version__
+        assert client.get("/api/v1/info").json()["version"] == __version__
 
 
 def test_status_reports_paper_and_not_live() -> None:

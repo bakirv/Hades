@@ -1,6 +1,8 @@
 [project]
 name = "hades"
-version = "0.10.0"
+# Version is derived from ``hades.__version__`` (single source of truth) via
+# ``[tool.setuptools.dynamic]`` below — do not hardcode it here.
+dynamic = ["version"]
 description = "Hades — professional quantitative platform for Solana meme coins."
 requires-python = ">=3.12"
 readme = "../hades.md"
@@ -62,6 +64,9 @@ hades-preflight = "hades.ops.entrypoints:run_preflight"
 [build-system]
 requires = ["setuptools>=69", "wheel"]
 build-backend = "setuptools.build_meta"
+
+[tool.setuptools.dynamic]
+version = { attr = "hades.__version__" }
 
 [tool.setuptools.packages.find]
 where = ["src"]
