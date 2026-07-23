@@ -19,6 +19,14 @@ x-app-base: &app-base
     dockerfile: Dockerfile
   env_file: .env
   restart: unless-stopped
+  # Hardening: the image already runs as the non-root `hades` user (uid 1000);
+  # these drop every Linux capability (a pure-Python service needs none) and
+  # forbid privilege escalation via setuid binaries. Defence-in-depth for a
+  # service that will run unattended 24/7.
+  cap_drop:
+    - ALL
+  security_opt:
+    - no-new-privileges:true
   # All durable data is volume-backed and shared where services must cooperate
   # (logs aggregate; the liveness dir is read by the watchdog).
   volumes:
@@ -38,6 +46,11 @@ x-app-base: &app-base
       condition: service_healthy
     redis:
       condition: service_healthy
+    # Every app service waits for the one-shot `migrate` job to bring the schema
+    # to head first, so `docker compose up -d` is a complete, no-manual-steps
+    # deployment. `migrate` is standalone (not this anchor) to avoid a cycle.
+    migrate:
+      condition: service_completed_successfully
   logging:
     driver: json-file
     options:
@@ -52,11 +65,40 @@ x-healthcheck-defaults: &healthcheck-defaults
 
 services:
   # ---------------------------------------------------------------------------
+  # MIGRATE — one-shot schema migration to `head`, run before any app service.
+  # Standalone (does not use the app-base anchor) so app-base can depend on it
+  # without a dependency cycle. Idempotent: re-running upgrades to head or no-ops.
+  # ---------------------------------------------------------------------------
+  migrate:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    env_file: .env
+    restart: "no"
+    command: ["alembic", "upgrade", "head"]
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - database
+    depends_on:
+      postgres:
+        condition: service_healthy
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  # ---------------------------------------------------------------------------
   # DATA STORES (database tier only — never published to the host in prod)
   # ---------------------------------------------------------------------------
   postgres:
     image: postgres:16-alpine
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-hades}
       POSTGRES_USER: ${POSTGRES_USER:-hades}
@@ -74,6 +116,8 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
     command: ["redis-server", "--appendonly", "yes"]
     volumes:
       - redis_data:/data
@@ -88,6 +132,8 @@ services:
   clickhouse:
     image: clickhouse/clickhouse-server:24-alpine
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
     profiles: ["analytics"]
     environment:
       CLICKHOUSE_DB: ${CLICKHOUSE_DB:-hades_analytics}
@@ -120,11 +166,14 @@ services:
   engine:
     <<: *app-base
     command: ["hades-engine"]
+    # Overrides app-base depends_on, so the migrate gate must be repeated here.
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
       api:
         condition: service_started
     healthcheck:
@@ -183,6 +232,10 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
     restart: unless-stopped
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
     depends_on:
       - api
     networks:
@@ -199,19 +252,26 @@ services:
   # OBSERVABILITY (optional — profile: observability)
   # ---------------------------------------------------------------------------
   prometheus:
-    image: prom/prometheus:latest
+    # Pinned (never `:latest`) for reproducible builds; v2.53 is the current LTS.
+    image: prom/prometheus:v2.53.0
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
     profiles: ["observability"]
     volumes:
       - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
     networks:
       - backend
+    # Admin UI bound to localhost only — reach it via an SSH tunnel, never exposed
+    # on a public interface.
     ports:
-      - "9090:9090"
+      - "127.0.0.1:9090:9090"
 
   grafana:
-    image: grafana/grafana:latest
+    image: grafana/grafana:11.2.0
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
     profiles: ["observability"]
     depends_on:
       - prometheus
@@ -222,8 +282,9 @@ services:
       - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
     networks:
       - backend
+    # Admin UI bound to localhost only (see prometheus).
     ports:
-      - "3001:3000"
+      - "127.0.0.1:3001:3000"
 
 # --- networks (three-tier separation) ----------------------------------------
 networks:

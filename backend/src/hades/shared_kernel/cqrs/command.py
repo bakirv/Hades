@@ -9,7 +9,6 @@ resulting events flow to the bus.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Generic, TypeVar
 
 from pydantic import BaseModel, ConfigDict
 
@@ -20,11 +19,7 @@ class Command(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
 
-TCommand = TypeVar("TCommand", bound=Command)
-TResult = TypeVar("TResult")
-
-
-class CommandHandler(ABC, Generic[TCommand, TResult]):
+class CommandHandler[TCommand: Command, TResult](ABC):
     """Handles exactly one command type."""
 
     @abstractmethod

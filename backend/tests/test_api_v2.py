@@ -38,6 +38,17 @@ def test_trading_mode_endpoint() -> None:
         assert body["is_live"] is False
 
 
+def test_switch_to_live_is_rejected_for_the_implicit_system_principal() -> None:
+    # With global API auth off (the default), the caller is the implicit,
+    # unauthenticated `system` principal. A switch to LIVE must be refused with
+    # 403 before any readiness logic runs — the go-live action always requires a
+    # real operator. Paper switches remain allowed.
+    with TestClient(create_app()) as client:
+        resp = client.post("/api/v1/trading/mode", json={"mode": "live", "confirm": True})
+        assert resp.status_code == 403
+        assert resp.json()["error"] == "PermissionDeniedError"
+
+
 def test_terminal_websocket_streams_snapshot() -> None:
     with TestClient(create_app()) as client, client.websocket_connect("/ws/terminal") as ws:
         msg = ws.receive_json()

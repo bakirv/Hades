@@ -60,6 +60,9 @@ ModeProvider = Callable[[], Awaitable[str]]
 class _OpenPosition:
     position_id: str
     entry_notional_usd: float
+    # Buy-side fee paid to open. Realized PnL on close must net BOTH round-trip
+    # frictions (entry + exit fee), not just the sell-side one.
+    entry_fees_usd: float
 
 
 class ExecutionEngine:
@@ -162,7 +165,9 @@ class ExecutionEngine:
         position_id = str(new_id())
         notional = fill.notional or request.notional
         self._open[str(request.token.mint)] = _OpenPosition(
-            position_id=position_id, entry_notional_usd=float(notional.amount)
+            position_id=position_id,
+            entry_notional_usd=float(notional.amount),
+            entry_fees_usd=float(fill.fees.amount),
         )
         await self._bus.publish(
             PositionOpened(
@@ -176,12 +181,18 @@ class ExecutionEngine:
         )
 
     async def _close_position(self, request: OrderRequest, fill: FillReport) -> None:
+        # NOTE: single-position-per-mint model — a SELL fully closes the position
+        # the matching BUY opened. Partial exits are not supported; if they are
+        # ever added, entry accounting must track remaining quantity/cost basis.
         mint = str(request.token.mint)
         open_pos = self._open.pop(mint, None)
         position_id = open_pos.position_id if open_pos else str(new_id())
         exit_notional = float((fill.notional or request.notional).amount)
         entry_notional = open_pos.entry_notional_usd if open_pos else exit_notional
-        realized = exit_notional - entry_notional - float(fill.fees.amount)
+        entry_fees = open_pos.entry_fees_usd if open_pos else 0.0
+        exit_fees = float(fill.fees.amount)
+        # Realized PnL is net of BOTH round-trip frictions (buy fee + sell fee).
+        realized = exit_notional - entry_notional - entry_fees - exit_fees
         await self._bus.publish(
             PositionClosed(
                 aggregate_id=position_id,

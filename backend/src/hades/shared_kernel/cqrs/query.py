@@ -7,7 +7,6 @@ read models only — they must never mutate state or emit events.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Generic, TypeVar
 
 from pydantic import BaseModel, ConfigDict
 
@@ -18,11 +17,7 @@ class Query(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
 
-TQuery = TypeVar("TQuery", bound=Query)
-TResult = TypeVar("TResult")
-
-
-class QueryHandler(ABC, Generic[TQuery, TResult]):
+class QueryHandler[TQuery: Query, TResult](ABC):
     """Handles exactly one query type. Read-only."""
 
     @abstractmethod

@@ -4,7 +4,7 @@ Responsibility:
     * Profile the deployer and early buyers: history, prior rugs, funding
       lineage, links to known good/bad actors.
     * Detect smart-money and insider clustering; measure holder quality.
-    * Produce a normalised ``Score`` (0–100) reflecting wallet-side conviction
+    * Produce a normalised ``Score`` (0-100) reflecting wallet-side conviction
       and risk.
     * Emit ``WalletScoreComputed``.
 

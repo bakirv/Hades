@@ -17,6 +17,7 @@ from hades.api.dependencies import get_trading_mode_service
 from hades.api.security import Principal, get_principal
 from hades.contexts.execution.application.trading_mode import TradingModeService
 from hades.shared_kernel.config.settings import TradingMode
+from hades.shared_kernel.errors import PermissionDeniedError
 
 router = APIRouter(prefix="/api/v1/trading", tags=["trading"])
 
@@ -63,6 +64,16 @@ async def change_mode(
     service: TradingModeService = Depends(get_trading_mode_service),
     principal: Principal = Depends(get_principal),
 ) -> dict[str, object]:
+    # Defence-in-depth: enabling LIVE is the single most dangerous action on the
+    # platform. It must never be initiated by the implicit `system` principal —
+    # require a real authenticated operator, even when global API auth is off.
+    # (The service still independently enforces the env gate, readiness checks
+    # and explicit confirmation; this is an additional, orthogonal barrier.)
+    if body.mode is TradingMode.LIVE and not principal.authenticated:
+        raise PermissionDeniedError(
+            "enabling live trading requires an authenticated operator "
+            "(set API_AUTH_ENABLED and present a valid X-API-Key)"
+        )
     source_ip = request.client.host if request.client else None
     status = await service.request_switch(
         body.mode, actor=principal.identity, confirm=body.confirm, source_ip=source_ip

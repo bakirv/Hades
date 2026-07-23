@@ -1,8 +1,8 @@
 """Immutable value objects shared across every context.
 
 Each enforces its own invariants at construction so an invalid quantity can
-never exist inside the domain (a ``Percentage`` is always 0–100, a
-``Probability`` always 0–1, ``Money`` never has a mismatched currency in
+never exist inside the domain (a ``Percentage`` is always 0-100, a
+``Probability`` always 0-1, ``Money`` never has a mismatched currency in
 arithmetic). Contexts pass these inside events; nobody re-validates downstream.
 """
 
@@ -14,7 +14,7 @@ from pydantic import Field, field_validator, model_validator
 
 from hades.shared_kernel.domain.base import ValueObject
 
-# Solana mint addresses / wallet pubkeys are base58, 32–44 chars.
+# Solana mint addresses / wallet pubkeys are base58, 32-44 chars.
 _BASE58_MIN = 32
 _BASE58_MAX = 44
 
@@ -110,7 +110,7 @@ class Confidence(ValueObject):
 
 
 class Score(ValueObject):
-    """A normalised 0–100 score with a human-readable label bucket.
+    """A normalised 0-100 score with a human-readable label bucket.
 
     Used for Security, Wallet and Final composite scores. Comparable so contexts
     can threshold against config (``score >= settings.scoring.min_final_score``).

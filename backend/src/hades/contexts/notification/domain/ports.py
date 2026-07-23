@@ -5,6 +5,8 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import Protocol, runtime_checkable
 
+from pydantic import Field
+
 from hades.shared_kernel.domain.base import ValueObject
 
 
@@ -21,7 +23,7 @@ class Notification(ValueObject):
     title: str
     body: str
     severity: Severity
-    tags: dict[str, str] = {}
+    tags: dict[str, str] = Field(default_factory=dict)
 
 
 @runtime_checkable

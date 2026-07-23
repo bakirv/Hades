@@ -14,10 +14,11 @@
 
 | | |
 |---|---|
-| **Current phase** | **Phase 11 — Production Hardening, Stage 1 (integration, stability & deployment)** |
+| **Current phase** | **Phase 11 — Production Hardening, Stage 2 (final code-quality & deployment closure)** |
 | **Version** | `0.10.0` |
-| **Trading** | Paper only. Live execution is hard-gated OFF (two switches) **and** now also blocked by the Production Checklist (any failing required subsystem or an active Emergency Mode refuses the switch to LIVE). The Execution Engine remains the *only* component that knows the mode; everything upstream is mode-agnostic. |
-| **Backend tests** | 376 passing · `mypy --strict` clean (407 src files) · new Stage-1 code `ruff`-clean |
+| **Trading** | Paper only. Live execution is hard-gated OFF (two switches), blocked by the Production Checklist (any failing required subsystem or an active Emergency Mode refuses the switch to LIVE), **and** — as of Stage 2 — the switch to LIVE additionally requires an authenticated operator (never the implicit `system` principal). The Execution Engine remains the *only* component that knows the mode; everything upstream is mode-agnostic. |
+| **Backend tests** | **378 passing** · `mypy --strict` clean (407 src files) · **`ruff` clean (0 findings)** · suite runs **warnings-as-errors** |
+| **Deployment** | `docker compose up -d` is now a complete, no-manual-steps bring-up: a one-shot `migrate` service applies the schema to head before any app service starts. |
 
 Phase 1 established the architecture skeleton (bounded contexts, contracts,
 domain events, shared kernel). Phase 2 built the full platform the system runs on
@@ -1427,9 +1428,63 @@ the load + resilience suites (§11–12 of the report) have been executed agains
 
 ---
 
+## 6l. Final Hardening (Phase 11, Stage 2 — 2026-07-23)
+
+The closing pass over the whole project. **No new business capability was added** —
+the goal was to eliminate the technical debt the audit registered, tighten quality to
+the highest bar, and make the deployment turnkey. Every change was validated against the
+full gate (`ruff` + `mypy --strict` + `pytest`). The closing report lives in
+[`docs/PRODUCTION_READINESS.md`](docs/PRODUCTION_READINESS.md).
+
+**Code quality (now 0 lint findings; suite runs warnings-as-errors).**
+- **CQRS `CommandHandler` / `QueryHandler`** migrated to PEP-695 native generics (`UP046`).
+- **Notification `NotificationRequested.tags` / `Notification.tags`** now use
+  `Field(default_factory=dict)` instead of a shared mutable default (`RUF012`).
+- Ambiguous Unicode en-dashes in domain docstrings normalized (`RUF002/003`).
+- `pytest` now runs with `filterwarnings = ["error", …]` — any warning our own code emits
+  fails the build; the one third-party deprecation we don't control (Starlette TestClient's
+  httpx import) is explicitly allow-listed (L3).
+- `pyproject` version synced to the documented release `0.10.0` (L4).
+
+**Money-safety / correctness.**
+- **Realized-PnL accounting fixed (M6).** On close, PnL is now net of **both** round-trip
+  frictions — the buy-side fee (captured at open in `_OpenPosition.entry_fees_usd`) *and*
+  the sell-side fee — not just the sell fee. The single-position-per-mint / full-close
+  assumption is now documented at the call site. Locked in by a new test
+  (`test_realized_pnl_is_net_of_both_round_trip_fees`).
+
+**Security / defence-in-depth.**
+- **Go-LIVE now requires a real operator (partial H4).** The `POST /api/v1/trading/mode`
+  endpoint refuses a switch **to LIVE** from the implicit unauthenticated `system` principal
+  with `403`, *independently* of the env gate, readiness checks and explicit confirmation it
+  already enforced. Read and paper operations are unaffected (the dashboard keeps working
+  with global auth off). New test: `test_switch_to_live_is_rejected_for_the_implicit_system_principal`.
+- **Container hardening (M4).** All app + dashboard services run with `cap_drop: [ALL]` and
+  `security_opt: [no-new-privileges:true]` (the image was already non-root, uid 1000); the
+  data stores get `no-new-privileges`; Prometheus/Grafana are **pinned** (no `:latest`) and
+  their admin UIs bind to `127.0.0.1` only.
+
+**Deployment (turnkey `up -d`).**
+- A one-shot **`migrate`** service (`alembic upgrade head`) now runs before any app service
+  (gated via `service_completed_successfully`), so `git clone → configure .env →
+  docker compose up -d` brings the schema to head automatically — no manual `make migrate`.
+
+**Consciously deferred (documented, not silently dropped).** The remaining LIVE-gating
+items are large, are *not* blockers for the paper-only posture, and — critically — cannot be
+*validated* without a live Postgres/Redis/RPC stack, so shipping them unvalidated would
+*lower* quality, not raise it. They are the headline of Hades v2 / pre-LIVE:
+- **H1** durable (Postgres) event store; **H2** durable order/transaction ledger;
+  **H3** persisted open-position map (rebuilt from the portfolio read-model on boot);
+- **H5** WebSocket authentication (coordinated server + dashboard change);
+- **M2** Postgres runtime-degradation strategy (readiness gating + DB circuit breaker);
+- building and independently auditing the live signer / quote / RPC adapters.
+
+---
+
 ## 7. Testing
 
-`backend/tests` (376 tests, all green; `mypy --strict` clean):
+`backend/tests` (378 tests, all green; `mypy --strict` clean; `ruff` clean; suite runs
+warnings-as-errors):
 - Phase 1: `test_value_objects`, `test_event_infrastructure`, `test_position_aggregate`,
   `test_api_health` (**asserts a fresh instance is never live**).
 - Phase 2: `test_config` (all sections load), `test_persistence_schema` (26 tables,
@@ -1612,6 +1667,19 @@ Earlier pending items remain relevant:
 
 ## Changelog of this document
 
+- **2026-07-23** — **Phase 11, Stage 2 — Final Hardening** (§6l; closing report in
+  `docs/PRODUCTION_READINESS.md`). Closing pass over the whole project; **no new
+  business capability**. Closed audit findings: **M6** realized-PnL now net of both
+  round-trip fees (+test); **M4** container hardening (`cap_drop: ALL`,
+  `no-new-privileges`, pinned+localhost-bound Prometheus/Grafana); **partial H4** the
+  switch to LIVE now requires an authenticated operator (+test); **L1–L4** all lint
+  findings cleared (PEP-695 generics, `Field(default_factory=dict)`, Unicode dashes,
+  version sync) and the suite now runs **warnings-as-errors**. Deployment made turnkey:
+  a one-shot **`migrate`** service brings the schema to head before any app service, so
+  `docker compose up -d` needs no manual migration step. Full gate green: **378 tests**,
+  `mypy --strict` clean (407 files), `ruff` clean. LIVE-gating durability items
+  (H1/H2/H3/H5/M2 + live adapters) consciously deferred to Hades v2 — they cannot be
+  *validated* without a live stack, and shipping them unvalidated would lower quality.
 - **2026-07-22** — **Technical Audit** run before any LIVE consideration (§6k, full
   report in `docs/TECHNICAL_AUDIT.md`). Baseline reproduced: 376/376 tests pass, mypy
   strict clean on 407 files. Money-safety invariants verified at source. Findings: 5 HIGH

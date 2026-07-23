@@ -207,3 +207,17 @@ async def test_sell_closes_the_position_opened_by_the_buy() -> None:
     assert len(closed) == 1
     # The SELL closes the very position id the BUY opened.
     assert closed[0].aggregate_id == opened[0].aggregate_id
+
+
+async def test_realized_pnl_is_net_of_both_round_trip_fees() -> None:
+    # A flat round trip (buy and sell at the same notional) must still show a
+    # loss equal to BOTH fees — the entry fee and the exit fee — not just one.
+    engine, bus, _ = _engine({"paper": _FakeExecutor()})
+    closed = _capture(bus, PositionClosed.__name__)
+
+    await engine.execute(_order(OrderSide.BUY))  # notional 100, fee 0.25
+    await engine.execute(_order(OrderSide.SELL))  # notional 100, fee 0.25
+
+    assert len(closed) == 1
+    # 100 (exit) - 100 (entry) - 0.25 (buy fee) - 0.25 (sell fee) = -0.50
+    assert closed[0].realized_pnl.amount == Decimal("-0.50")

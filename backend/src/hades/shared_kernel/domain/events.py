@@ -2,9 +2,14 @@
 
 A *domain event* is an immutable fact: something that already happened, named in
 the past tense (``TokenDiscovered``, ``PositionOpened``). Events are the
-backbone of Hades — every meaningful action produces one, they are persisted
-append-only in the event store (event sourcing) and published on the event bus
-so other contexts can react (event-driven architecture).
+backbone of Hades — every meaningful action produces one, they flow through an
+append-only ``EventStore`` port and are published on the event bus so other
+contexts can react (event-driven architecture).
+
+Durability note: the shipped ``EventStore`` implementation is in-memory; the
+persisted state today lives in Postgres **read-models** (projections), not a
+durable event log. A Postgres-backed ``EventStore`` (enabling true event-sourced
+replay) is a pre-LIVE roadmap item — see ``docs/PRODUCTION_READINESS.md`` (H1).
 
 Concrete events live in each context's ``domain/events.py`` and subclass this.
 """
