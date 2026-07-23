@@ -1,0 +1,1 @@
+"""Risk Manager infrastructure layer."""

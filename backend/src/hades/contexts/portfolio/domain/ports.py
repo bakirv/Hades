@@ -1,0 +1,37 @@
+"""Ports defined by the Portfolio context."""
+
+from __future__ import annotations
+
+from typing import Protocol, runtime_checkable
+
+from hades.contexts.portfolio.domain.models import PortfolioState, Position
+from hades.shared_kernel.domain.identifiers import EntityId
+
+
+@runtime_checkable
+class PositionRepository(Protocol):
+    """Loads and persists ``Position`` aggregates (event-sourced)."""
+
+    async def get(self, position_id: EntityId) -> Position: ...
+
+    async def save(self, position: Position) -> None: ...
+
+    async def list_open(self) -> list[Position]: ...
+
+
+@runtime_checkable
+class PortfolioHistoryStore(Protocol):
+    """Persists the portfolio time series - snapshots, equity curve and PnL log.
+
+    Write-only from the Portfolio Manager's perspective (the dashboard reads the
+    tables directly). Every write is best-effort: a history hiccup must never
+    stop the manager from maintaining live state.
+    """
+
+    async def record_snapshot(self, state: PortfolioState, *, mode: str) -> None: ...
+
+    async def record_equity(self, equity_usd: float, *, mode: str) -> None: ...
+
+    async def record_pnl(
+        self, amount_usd: float, *, kind: str, mode: str, mint: str | None = None
+    ) -> None: ...

@@ -1,0 +1,102 @@
+[project]
+name = "hades"
+version = "0.6.0"
+description = "Hades — professional quantitative platform for Solana meme coins."
+requires-python = ">=3.12"
+readme = "../hades.md"
+
+# Runtime dependencies. Pinned with lower bounds; the Docker image resolves the
+# exact versions. Kept intentionally lean for Phase 1 (foundations).
+dependencies = [
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.29",
+    "pydantic>=2.6",
+    "pydantic-settings>=2.2",
+    "sqlalchemy[asyncio]>=2.0",
+    "alembic>=1.13",
+    "asyncpg>=0.29",
+    "redis>=5.0",
+    "httpx>=0.27",
+    "structlog>=24.1",
+    "prometheus-client>=0.20",
+    "websockets>=12.0",
+    "orjson>=3.9",
+    "tenacity>=8.2",
+    "psutil>=5.9",
+]
+
+[project.optional-dependencies]
+# Heavy ML/analytics deps are opt-in so the core image stays small. They belong
+# to later phases (Learning Engine / Research Lab) but are declared here so the
+# contract is explicit.
+ml = [
+    "scikit-learn>=1.4",
+    "lightgbm>=4.3",
+    "xgboost>=2.0",
+    "numpy>=1.26",
+    "pandas>=2.2",
+]
+analytics = [
+    "clickhouse-connect>=0.7",
+]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "ruff>=0.3",
+    "mypy>=1.9",
+    "types-redis",
+    "types-psutil",
+]
+
+# Console entrypoints referenced by docker-compose commands.
+[project.scripts]
+hades-api = "hades.ops.entrypoints:run_api"
+hades-worker = "hades.ops.entrypoints:run_worker"
+hades-engine = "hades.ops.entrypoints:run_engine"
+hades-watchdog = "hades.ops.entrypoints:run_watchdog"
+hades-scheduler = "hades.ops.entrypoints:run_scheduler"
+hades-notification = "hades.ops.entrypoints:run_notification"
+hades-backup = "hades.ops.entrypoints:run_backup"
+hades-preflight = "hades.ops.entrypoints:run_preflight"
+
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+# -----------------------------------------------------------------------------
+# Tooling
+# -----------------------------------------------------------------------------
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "UP", "B", "C4", "SIM", "RUF"]
+
+[tool.ruff.lint.flake8-bugbear]
+# FastAPI's dependency-injection markers are the canonical B008 false positive:
+# they are meant to be called in argument defaults.
+extend-immutable-calls = [
+    "fastapi.Depends",
+    "fastapi.Query",
+    "fastapi.Path",
+    "fastapi.Header",
+    "fastapi.Cookie",
+    "fastapi.Body",
+]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+plugins = ["pydantic.mypy"]
+mypy_path = "src"
+packages = ["hades"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+pythonpath = ["src"]

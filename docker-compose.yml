@@ -1,0 +1,250 @@
+# =============================================================================
+# HADES — Full stack orchestration (Phase 2: platform infrastructure)
+# =============================================================================
+# Bring everything up with:   docker compose up -d
+# Optional analytics/observability layers live behind profiles:
+#   docker compose --profile analytics --profile observability up -d
+#
+# Everything runs in Docker; nothing is installed on the host. Networks are
+# split into three tiers (frontend / backend / database) and all durable state
+# lives in named volumes so it survives restarts. The structure maps cleanly to
+# Kubernetes later (one Deployment per service, the networks become policies).
+# =============================================================================
+name: hades
+
+# --- shared building blocks --------------------------------------------------
+x-app-base: &app-base
+  build:
+    context: ./backend
+    dockerfile: Dockerfile
+  env_file: .env
+  restart: unless-stopped
+  # All durable data is volume-backed and shared where services must cooperate
+  # (logs aggregate; the liveness dir is read by the watchdog).
+  volumes:
+    - hades_logs:/var/log/hades
+    - hades_run:/var/run/hades
+    - hades_config:/app/config
+    - hades_models:/app/models
+    - hades_backups:/app/backups
+    - hades_datasets:/app/datasets
+    - hades_research:/app/research
+    - hades_docs:/app/docs
+  networks:
+    - backend
+    - database
+  depends_on:
+    postgres:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "5"
+
+x-healthcheck-defaults: &healthcheck-defaults
+  interval: 30s
+  timeout: 10s
+  retries: 5
+  start_period: 30s
+
+services:
+  # ---------------------------------------------------------------------------
+  # DATA STORES (database tier only — never published to the host in prod)
+  # ---------------------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-hades}
+      POSTGRES_USER: ${POSTGRES_USER:-hades}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change_me_in_env}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - database
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-hades} -d ${POSTGRES_DB:-hades}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    networks:
+      - database
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:24-alpine
+    restart: unless-stopped
+    profiles: ["analytics"]
+    environment:
+      CLICKHOUSE_DB: ${CLICKHOUSE_DB:-hades_analytics}
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER:-hades}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-change_me_in_env}
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+    networks:
+      - database
+
+  # ---------------------------------------------------------------------------
+  # API — REST + WebSocket (spans frontend/backend/database tiers)
+  # ---------------------------------------------------------------------------
+  api:
+    <<: *app-base
+    command: ["hades-api"]
+    networks:
+      - frontend
+      - backend
+      - database
+    ports:
+      - "${API_PORT:-8000}:8000"
+    healthcheck:
+      <<: *healthcheck-defaults
+      test: ["CMD", "python", "-m", "hades.ops.healthcheck"]
+
+  # ---------------------------------------------------------------------------
+  # ENGINE — decision engine (skeleton in Phase 2; no strategies/scanner/AI)
+  # ---------------------------------------------------------------------------
+  engine:
+    <<: *app-base
+    command: ["hades-engine"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      api:
+        condition: service_started
+    healthcheck:
+      <<: *healthcheck-defaults
+      test: ["CMD", "python", "-m", "hades.ops.healthcheck", "--role", "engine"]
+
+  # ---------------------------------------------------------------------------
+  # WORKER — general background loops / event consumers
+  # ---------------------------------------------------------------------------
+  worker:
+    <<: *app-base
+    command: ["hades-worker"]
+    healthcheck:
+      <<: *healthcheck-defaults
+      test: ["CMD", "python", "-m", "hades.ops.healthcheck", "--role", "worker"]
+
+  # ---------------------------------------------------------------------------
+  # SCHEDULER — periodic jobs (backups, cleanup)
+  # ---------------------------------------------------------------------------
+  scheduler:
+    <<: *app-base
+    command: ["hades-scheduler"]
+    healthcheck:
+      <<: *healthcheck-defaults
+      test: ["CMD", "python", "-m", "hades.ops.healthcheck", "--role", "scheduler"]
+
+  # ---------------------------------------------------------------------------
+  # NOTIFICATION — the only Discord delivery service (event-driven)
+  # ---------------------------------------------------------------------------
+  notification:
+    <<: *app-base
+    command: ["hades-notification"]
+    healthcheck:
+      <<: *healthcheck-defaults
+      test: ["CMD", "python", "-m", "hades.ops.healthcheck", "--role", "notification"]
+
+  # ---------------------------------------------------------------------------
+  # WATCHDOG — independent monitor (spans all tiers to observe them)
+  # ---------------------------------------------------------------------------
+  watchdog:
+    <<: *app-base
+    command: ["hades-watchdog"]
+    networks:
+      - frontend
+      - backend
+      - database
+    healthcheck:
+      <<: *healthcheck-defaults
+      test: ["CMD", "python", "-m", "hades.ops.healthcheck", "--role", "watchdog"]
+
+  # ---------------------------------------------------------------------------
+  # DASHBOARD (React + Vite + Tailwind — frontend tier only)
+  # ---------------------------------------------------------------------------
+  dashboard:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      - api
+    networks:
+      - frontend
+    ports:
+      - "${DASHBOARD_PORT:-5173}:5173"
+    environment:
+      VITE_API_BASE_URL: http://localhost:${API_PORT:-8000}
+    healthcheck:
+      <<: *healthcheck-defaults
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:5173/ || exit 1"]
+
+  # ---------------------------------------------------------------------------
+  # OBSERVABILITY (optional — profile: observability)
+  # ---------------------------------------------------------------------------
+  prometheus:
+    image: prom/prometheus:latest
+    restart: unless-stopped
+    profiles: ["observability"]
+    volumes:
+      - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    networks:
+      - backend
+    ports:
+      - "9090:9090"
+
+  grafana:
+    image: grafana/grafana:latest
+    restart: unless-stopped
+    profiles: ["observability"]
+    depends_on:
+      - prometheus
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
+    networks:
+      - backend
+    ports:
+      - "3001:3000"
+
+# --- networks (three-tier separation) ----------------------------------------
+networks:
+  frontend:
+    driver: bridge
+  backend:
+    driver: bridge
+  database:
+    driver: bridge
+
+# --- volumes (everything durable survives restarts) --------------------------
+volumes:
+  postgres_data:      # database
+  redis_data:         # cache/queues (ephemeral data, persisted AOF for restarts)
+  clickhouse_data:    # analytics
+  grafana_data:       # dashboards
+  hades_logs:         # structured logs (per-domain + combined)
+  hades_run:          # liveness heartbeat files (shared with the watchdog)
+  hades_config:       # runtime configuration overrides
+  hades_models:       # AI/ML model registry
+  hades_backups:      # automatic backups
+  hades_datasets:     # datasets / feature store
+  hades_research:     # research lab artifacts
+  hades_docs:         # documentation

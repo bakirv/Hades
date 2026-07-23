@@ -1,0 +1,60 @@
+# =============================================================================
+# HADES — Local development overrides (auto-loaded by docker compose)
+# =============================================================================
+# Mounts source for hot-reload, runs the API in reload mode, and publishes the
+# data-store ports for local tooling (they are NOT published by the base file,
+# which is the production posture — "no exponer servicios innecesarios").
+#
+# In production, run:  docker compose -f docker-compose.yml up -d  (no override)
+# =============================================================================
+services:
+  postgres:
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+
+  redis:
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+
+  api:
+    command: ["hades-api", "--reload"]
+    volumes:
+      - ./backend/src:/app/src
+    environment:
+      HADES_ENV: development
+
+  engine:
+    volumes:
+      - ./backend/src:/app/src
+    environment:
+      HADES_ENV: development
+
+  worker:
+    volumes:
+      - ./backend/src:/app/src
+    environment:
+      HADES_ENV: development
+
+  scheduler:
+    volumes:
+      - ./backend/src:/app/src
+    environment:
+      HADES_ENV: development
+
+  notification:
+    volumes:
+      - ./backend/src:/app/src
+    environment:
+      HADES_ENV: development
+
+  watchdog:
+    volumes:
+      - ./backend/src:/app/src
+    environment:
+      HADES_ENV: development
+
+  dashboard:
+    command: ["npm", "run", "dev", "--", "--host"]
+    volumes:
+      - ./frontend/src:/app/src
+      - ./frontend/public:/app/public

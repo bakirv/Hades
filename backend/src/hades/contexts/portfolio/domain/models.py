@@ -1,0 +1,166 @@
+"""Portfolio domain model, including the ``Position`` aggregate root.
+
+``Position`` is the reference example of the event-sourced aggregate pattern in
+Hades: every state transition is expressed as a method that enforces invariants
+and records a domain event. The trailing-stop / take-profit *policy* (when to
+close) lives in a later phase; here we model the state machine and its
+guarantees only.
+"""
+
+from __future__ import annotations
+
+from datetime import datetime
+from decimal import Decimal
+from enum import StrEnum
+
+from hades.contexts.common.domain.value_objects import Money, TokenRef
+from hades.contexts.portfolio.domain.events import (
+    PositionClosed,
+    PositionOpened,
+    PositionUpdated,
+    TrailingStopAdjusted,
+)
+from hades.shared_kernel.domain.base import AggregateRoot, ValueObject
+from hades.shared_kernel.errors import DomainError
+
+
+class PositionStatus(StrEnum):
+    PENDING = "pending"
+    OPEN = "open"
+    CLOSED = "closed"
+
+
+class Position(AggregateRoot):
+    """A single tracked position in one token. Consistency boundary for trades."""
+
+    token: TokenRef
+    status: PositionStatus = PositionStatus.PENDING
+    quantity: Decimal = Decimal(0)
+    entry_price: Money | None = None
+    mark_price: Money | None = None
+    stop_price: Money | None = None
+    realized_pnl: Money | None = None
+
+    def open(
+        self,
+        *,
+        entry_price: Money,
+        quantity: Decimal,
+        notional: Money,
+        tags: dict[str, str] | None = None,
+    ) -> None:
+        if self.status is not PositionStatus.PENDING:
+            raise DomainError("position already opened", context={"id": str(self.id)})
+        if quantity <= 0:
+            raise DomainError("quantity must be positive")
+        self.status = PositionStatus.OPEN
+        self.entry_price = entry_price
+        self.mark_price = entry_price
+        self.quantity = quantity
+        self._record(
+            PositionOpened(
+                aggregate_id=self.id,
+                token=self.token,
+                entry_price=entry_price,
+                quantity=quantity,
+                notional=notional,
+                tags=tags or {},
+            )
+        )
+
+    def mark(self, *, price: Money, unrealized_pnl: Money) -> None:
+        self._require_open()
+        self.mark_price = price
+        self._record(
+            PositionUpdated(aggregate_id=self.id, mark_price=price, unrealized_pnl=unrealized_pnl)
+        )
+
+    def adjust_trailing_stop(self, *, new_stop_price: Money) -> None:
+        self._require_open()
+        self.stop_price = new_stop_price
+        self._record(TrailingStopAdjusted(aggregate_id=self.id, new_stop_price=new_stop_price))
+
+    def close(self, *, exit_price: Money, realized_pnl: Money, reason: str) -> None:
+        self._require_open()
+        self.status = PositionStatus.CLOSED
+        self.realized_pnl = realized_pnl
+        self._record(
+            PositionClosed(
+                aggregate_id=self.id,
+                exit_price=exit_price,
+                realized_pnl=realized_pnl,
+                reason=reason,
+            )
+        )
+
+    def _require_open(self) -> None:
+        if self.status is not PositionStatus.OPEN:
+            raise DomainError(
+                "position is not open", context={"id": str(self.id), "status": self.status}
+            )
+
+
+# =============================================================================
+# Portfolio read model (maintained by the Portfolio Manager)
+# =============================================================================
+
+
+class ClosedTrade(ValueObject):
+    """A realised trade result - the input row for Portfolio Analytics."""
+
+    token: TokenRef
+    pnl_usd: float
+    strategy: str = "default"
+    reason: str = ""
+    at: datetime | None = None
+
+    @property
+    def is_win(self) -> bool:
+        return self.pnl_usd > 0
+
+
+class PortfolioState(ValueObject):
+    """The live portfolio picture - balance, equity, PnL and exposure.
+
+    This is the canonical state the Portfolio Manager keeps up to date in real
+    time and the read model every dashboard and the Risk Manager query. All
+    figures are USD floats at the read boundary (the aggregates keep Decimals).
+    """
+
+    at: datetime
+    starting_balance_usd: float
+    cash_usd: float
+    invested_usd: float
+    realized_pnl_usd: float = 0.0
+    unrealized_pnl_usd: float = 0.0
+    fees_usd: float = 0.0
+    slippage_usd: float = 0.0
+    peak_equity_usd: float = 0.0
+    open_positions: int = 0
+
+    @property
+    def equity_usd(self) -> float:
+        """Cash plus the marked value of open positions."""
+        return round(self.cash_usd + self.invested_usd + self.unrealized_pnl_usd, 6)
+
+    @property
+    def exposure_pct(self) -> float:
+        eq = self.equity_usd
+        if eq <= 0:
+            return 0.0
+        return round(self.invested_usd / eq * 100.0, 4)
+
+    @property
+    def roi_pct(self) -> float:
+        if self.starting_balance_usd <= 0:
+            return 0.0
+        return round(
+            (self.equity_usd - self.starting_balance_usd) / self.starting_balance_usd * 100.0, 4
+        )
+
+    @property
+    def drawdown_pct(self) -> float:
+        peak = max(self.peak_equity_usd, self.equity_usd)
+        if peak <= 0:
+            return 0.0
+        return round(max(0.0, (peak - self.equity_usd) / peak) * 100.0, 4)
