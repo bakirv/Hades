@@ -2,9 +2,17 @@
 
 from __future__ import annotations
 
+from unittest import mock
+
+import httpx
 from fastapi.testclient import TestClient
 
 from hades.api.app import create_app
+
+
+def _via(client: TestClient):
+    """Route the healthcheck's httpx.get through the TestClient."""
+    return lambda url, **kwargs: client.get("/health")
 
 
 def test_health_endpoint() -> None:
@@ -53,3 +61,25 @@ def test_meta_lists_contexts() -> None:
         assert "scanner" in body["contexts"]
         assert "execution" in body["contexts"]
         assert body["version"]
+
+
+def test_container_healthcheck_ignores_dependency_failures() -> None:
+    """Docker restarts the API when this check fails, so it must key off the one
+    thing a restart can fix: this process. /health aggregates Postgres, Redis, RPC
+    and every background process — a restart repairs none of them, and keying off
+    that aggregate would put the API in a restart loop during a Redis blip."""
+    from hades.ops.healthcheck import _check_http
+
+    with TestClient(create_app()) as client:
+        # No Postgres/Redis/RPC in a test process, so the aggregate is unhealthy.
+        assert client.get("/health").json()["status"] == "unhealthy"
+
+        with mock.patch("hades.ops.healthcheck.httpx.get", side_effect=_via(client)):
+            assert _check_http() == 0
+
+
+def test_container_healthcheck_fails_when_the_api_itself_cannot_answer() -> None:
+    from hades.ops.healthcheck import _check_http
+
+    with mock.patch("hades.ops.healthcheck.httpx.get", side_effect=httpx.ConnectError("refused")):
+        assert _check_http() == 1
