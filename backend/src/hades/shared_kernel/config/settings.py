@@ -125,6 +125,10 @@ class ObservabilitySettings(_Section):
     metrics_port: int = Field(default=9100, alias="METRICS_PORT")
     tracing_enabled: bool = Field(default=False, alias="TRACING_ENABLED")
     tracing_otlp_endpoint: str = Field(default="", alias="TRACING_OTLP_ENDPOINT")
+    # Ship each process's log lines through Redis so the dashboard terminal shows
+    # the whole platform and not just the API's own process. Fire-and-forget: a
+    # Redis outage degrades to per-process logs, never to a stalled service.
+    log_shipping_enabled: bool = Field(default=True, alias="LOG_SHIPPING_ENABLED")
 
 
 class SolanaSettings(_Section):
@@ -215,6 +219,12 @@ class ScannerSettings(_Section):
     whitelist_tokens: str = Field(default="", alias="WHITELIST_TOKENS")
     # Per-source HTTP request timeout.
     source_timeout_seconds: float = 12.0
+    # Per-source endpoint overrides, e.g.
+    # ``SCANNER_SOURCE_URLS={"dexscreener": "https://my-bridge/dex"}``.
+    # Each adapter ships a sensible default; this exists so pointing a source at a
+    # mirror, a proxy or a replacement API is a config change instead of a code
+    # edit. Unknown source names are ignored (the source simply is not built).
+    source_urls: dict[str, str] = Field(default_factory=dict)
 
     @property
     def source_list(self) -> list[str]:
