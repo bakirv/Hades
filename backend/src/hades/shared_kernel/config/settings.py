@@ -582,6 +582,12 @@ class ResearchSettings(_Section):
     promo_min_sharpe: float = 1.0
     promo_max_drawdown: float = 0.25
     promo_min_profit_factor: float = 1.3
+    # Inbox for candidate bundles produced by the *external* Hades Research Lab
+    # (its own repository and stack). An operator drops bundles here and runs the
+    # importer; the lab itself has no write path into this process. Imported
+    # candidates land as TRAINED — never promoted. See
+    # ``hades.contexts.learning.domain.candidates``.
+    candidate_inbox: str = Field(default="/app/research/inbox", alias="RESEARCH_CANDIDATE_INBOX")
 
 
 class StrategySettings(_Section):
