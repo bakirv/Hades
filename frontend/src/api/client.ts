@@ -139,6 +139,43 @@ export interface PortfolioStatus {
   live: PortfolioLive;
 }
 
+/** The Risk Manager's live posture — the safety state of the platform. */
+export interface RiskLive {
+  enabled?: boolean;
+  kill_switch_level?: number;
+  kill_switch_label?: string;
+  kill_switch_reason?: string | null;
+  circuit_breaker_open?: boolean;
+  circuit_breaker_reasons?: string[];
+  emergency_mode?: boolean;
+  open_positions?: number;
+  portfolio_exposure_pct?: number;
+  daily_loss_pct?: number;
+  drawdown_pct?: number;
+  consecutive_losses?: number;
+  approvals_session?: number;
+  rejections_session?: number;
+  updated_at?: number;
+}
+
+export interface RiskStatus {
+  enabled: boolean;
+  running: boolean;
+  live: RiskLive;
+}
+
+export interface RiskDecision {
+  mint: string;
+  symbol?: string | null;
+  at: string | null;
+  decision: string;
+  reject_reason?: string | null;
+  conviction?: number | null;
+  notional_usd?: number | null;
+  strategy?: string | null;
+  headline?: string | null;
+}
+
 export interface PnlRow {
   at: string | null;
   kind: string;
@@ -426,6 +463,8 @@ export const api = {
   portfolioEquityCurve: () =>
     get<{ points: EquityPoint[] }>("/api/v1/portfolio/equity-curve?limit=200"),
   executionMetrics: () => get<ExecutionMetrics>("/api/v1/execution/metrics"),
+  riskStatus: () => get<RiskStatus>("/api/v1/risk/status"),
+  riskDecisions: () => get<{ decisions: RiskDecision[] }>("/api/v1/risk/decisions?limit=25"),
   intelligenceStatus: () => get<IntelligenceStatus>("/api/v1/intelligence/status"),
   walletProfile: (address: string) =>
     get<WalletProfile>(`/api/v1/intelligence/wallet/${address}`),
