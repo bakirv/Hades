@@ -66,6 +66,48 @@ async def test_sell_slippage_pushes_price_below_reference() -> None:
     assert fill.average_price.amount < Decimal(2)
 
 
+async def test_a_buy_spends_exactly_the_order_size() -> None:
+    # A BUY is denominated in the cash you commit: slippage buys fewer tokens
+    # for it, but the cash out is the order size.
+    fill = await _executor().execute(_request(OrderSide.BUY))
+    assert fill.notional is not None
+    assert fill.notional.amount == Decimal(100)
+
+
+async def test_a_sell_receives_less_than_the_order_size_because_of_slippage() -> None:
+    # A SELL is denominated in the market value of what is being sold, so the
+    # impact has to come off the *proceeds*. Modelling it like a buy would make
+    # exit slippage free, and a simulation that hands you a costless exit reports
+    # profits the real market would never have paid.
+    class _Oracle:
+        async def price_usd(self, token: TokenRef) -> Decimal:
+            return Decimal(2)
+
+    fill = await _executor(oracle=_Oracle()).execute(_request(OrderSide.SELL))
+
+    assert fill.notional is not None
+    assert fill.notional.amount < Decimal(100)
+    # The tokens given up are valued at the mark, not at the slipped price.
+    assert fill.filled_quantity == Decimal(50)
+    # Proceeds are those tokens at the price actually achieved.
+    assert fill.notional.amount == fill.filled_quantity * fill.average_price.amount
+
+
+async def test_a_flat_round_trip_loses_money_in_the_simulation() -> None:
+    # Buying and selling at one unchanged price must cost something. If the two
+    # notionals came back equal, paper mode would be reporting a free round trip.
+    class _Oracle:
+        async def price_usd(self, token: TokenRef) -> Decimal:
+            return Decimal(2)
+
+    executor = _executor(oracle=_Oracle())
+    buy = await executor.execute(_request(OrderSide.BUY))
+    sell = await executor.execute(_request(OrderSide.SELL))
+
+    assert buy.notional is not None and sell.notional is not None
+    assert sell.notional.amount < buy.notional.amount
+
+
 async def test_no_oracle_falls_back_to_unit_price() -> None:
     fill = await _executor().execute(_request())
     # Unit reference price (1) plus BUY slippage → effective price slightly > 1.

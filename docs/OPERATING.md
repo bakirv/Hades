@@ -53,6 +53,38 @@ position_closed  mint=… symbol=BONK entry_usd=… exit_usd=… fees_usd=… re
 These appear in the dashboard terminal, in `trading.log`, and — with Discord
 enabled — in your channel.
 
+### Open positions are marked to market by the Position Monitor
+
+Entering is only half a trade. The **Position Monitor** runs inside the execution
+runtime and, every `POSITION_MONITOR_INTERVAL_SECONDS`, prices every open
+position through the price oracle and:
+
+* publishes the mark, which is what moves unrealised PnL, equity, drawdown and
+  the equity curve — the numbers the Portfolio page reads;
+* closes the position when it hits its take-profit, stop-loss, trailing stop or
+  time stop, by placing a normal SELL through the ordinary execution path.
+
+```
+position_tracked          position_id=… mint=… entry_price=… notional_usd=…
+position_exit_triggered   position_id=… mint=… reason=take_profit entry_price=… mark_price=…
+```
+
+Two settings switch it off, and both have the same visible symptom — **a
+portfolio whose numbers never change**:
+
+| Setting | Off means |
+|---|---|
+| `POSITION_MONITOR_ENABLED=false` | positions are opened, then never re-priced and never closed |
+| `EXECUTION_PRICE_ORACLE_ENABLED=false` | nothing to mark against, so the monitor is not built at all; paper fills also fall back to a $1 unit price |
+
+Both log a warning at startup (`position_monitor_disabled`,
+`price_oracle_disabled`, `position_monitor_not_built`) — if the Portfolio page
+looks frozen, that is the first thing to grep for.
+
+A position is never sold twice: an in-flight exit is flagged until
+`PositionClosed` arrives. A position whose price cannot be fetched is **held, not
+marked** — a broken feed must never be able to liquidate the book.
+
 ### `/health` answers what is actually alive
 
 It reports the API, every dependency probe (Postgres, Redis, RPC, ClickHouse) and
@@ -157,7 +189,11 @@ In order, because each step tells you whether the next one is worth taking:
    component that authorises a trade, it is fail-closed (any exception rejects),
    and it runs Kill Switch / Circuit Breaker / Emergency Mode *before* any
    token-specific logic. `/api/v1/risk` shows its posture.
-6. `MODELS 0` on the AI page is normal until training produces a candidate — the
+6. Buying but never selling, or a Portfolio page whose PnL never moves? That is
+   the Position Monitor, not the pipeline. See the table above, then check
+   `hades_execution_position_marks_unpriced_total` — a rising count means the
+   oracle cannot price your tokens, so nothing can be marked or exited.
+7. `MODELS 0` on the AI page is normal until training produces a candidate — the
    committee runs on documented default priors. Identical probabilities across
    *every* token mean the features are not varying, which is a scanner/feature
    problem, not a committee problem.

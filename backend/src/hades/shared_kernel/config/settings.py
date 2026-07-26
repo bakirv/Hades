@@ -390,6 +390,14 @@ class PositionSettings(_Section):
     trailing_enabled: bool = True
     trailing_activation_pct: float = 25
     trailing_distance_pct: float = 10
+    # -- exit execution (the Position Monitor) ---------------------------------
+    # These thresholds used to size trades only; nothing acted on them, so no
+    # position was ever closed. The monitor is what turns them into exits.
+    monitor_enabled: bool = True
+    monitor_interval_seconds: float = 5.0
+    # Time stop. 0 disables it — a meme-coin position with no target and no stop
+    # in sight is usually better closed than held, but that is a policy choice.
+    max_hold_minutes: float = 0.0
 
 
 class ExecutionSettings(_Section):
@@ -421,6 +429,14 @@ class ExecutionSettings(_Section):
     quote_mint: str = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
     # How often the runtime publishes its execution status snapshot to Redis.
     status_interval_seconds: float = 5.0
+    # -- price oracle ----------------------------------------------------------
+    # Grounds paper fills in a real price and marks open positions to market.
+    # With it off, both degrade to a unit price: every paper fill is priced at $1
+    # and every open position shows zero unrealised PnL for its whole life.
+    price_oracle_enabled: bool = True
+    price_oracle_url: str = "https://api.dexscreener.com/latest/dex/tokens"
+    price_oracle_timeout_seconds: float = 10.0
+    price_oracle_cache_ttl_seconds: float = 5.0
 
 
 class PaperSettings(_Section):

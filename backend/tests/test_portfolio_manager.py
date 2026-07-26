@@ -143,3 +143,58 @@ async def test_consecutive_losses_from_closed_trades() -> None:
         )
     state = await pm.risk_state()
     assert state.consecutive_losses == 2  # last two were losses
+
+
+async def test_open_positions_expose_the_book_row_by_row() -> None:
+    # The dashboard lists the book, not just its totals: an operator needs to see
+    # which position is carrying the PnL, and marking it must move that row.
+    pm, bus = _manager()
+    pid = new_id()
+    await bus.publish(
+        PositionOpened(
+            aggregate_id=pid,
+            token=_token(),
+            entry_price=Money(amount="1"),
+            quantity=Decimal(100),
+            notional=Money(amount="100"),
+            tags={"strategy": "momentum"},
+        )
+    )
+
+    assert len(pm.open_positions()) == 1
+    assert pm.open_positions()[0].unrealized_pnl_usd == 0.0
+    assert pm.open_positions()[0].strategy == "momentum"
+
+    await bus.publish(
+        PositionUpdated(
+            aggregate_id=pid,
+            mark_price=Money(amount="1.2"),
+            unrealized_pnl=Money(amount="20"),
+        )
+    )
+
+    assert pm.open_positions()[0].unrealized_pnl_usd == 20.0
+
+
+async def test_a_closed_position_leaves_the_open_book() -> None:
+    pm, bus = _manager()
+    pid = new_id()
+    await bus.publish(
+        PositionOpened(
+            aggregate_id=pid,
+            token=_token(),
+            entry_price=Money(amount="1"),
+            quantity=Decimal(100),
+            notional=Money(amount="100"),
+        )
+    )
+    await bus.publish(
+        PositionClosed(
+            aggregate_id=pid,
+            exit_price=Money(amount="1.2"),
+            realized_pnl=Money(amount="20"),
+            reason="take_profit",
+        )
+    )
+
+    assert pm.open_positions() == ()
