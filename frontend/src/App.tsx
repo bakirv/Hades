@@ -1,12 +1,11 @@
-import { Route, Routes } from "react-router-dom";
+import { Navigate, Route, Routes } from "react-router-dom";
 import { ModeSwitch } from "./components/ModeSwitch";
+import { SectionTabs } from "./components/SectionTabs";
 import { Sidebar } from "./components/Sidebar";
 import { useLiveStatus } from "./hooks";
 import { AIScreen } from "./pages/AIScreen";
 import { ConfigScreen } from "./pages/ConfigScreen";
-import { HealthScreen } from "./pages/HealthScreen";
 import { IntelligenceScreen } from "./pages/IntelligenceScreen";
-import { LogsScreen } from "./pages/LogsScreen";
 import { PortfolioScreen } from "./pages/PortfolioScreen";
 import { ResearchScreen } from "./pages/ResearchScreen";
 import { RiskScreen } from "./pages/RiskScreen";
@@ -16,8 +15,12 @@ import { TerminalScreen } from "./pages/TerminalScreen";
 import { TradingModeScreen } from "./pages/TradingModeScreen";
 
 // Control-center shell: fixed sidebar, a header with the guarded Paper/Live
-// switch and live status, and the routed screen area. Real per-screen data
-// arrives in later phases — Phase 2 establishes the structure.
+// switch and live status, a tab bar for the active section, and the routed
+// screen area.
+//
+// Screens are grouped into four sections (see `navigation.ts`) rather than
+// listed flat. Every original path still routes to the same screen — only where
+// it *appears* changed — so nothing that linked to /portfolio or /risk broke.
 export default function App() {
   const status = useLiveStatus();
 
@@ -45,21 +48,31 @@ export default function App() {
           </div>
         )}
 
-        <main className="flex-1 overflow-y-auto p-6">
-          <Routes>
-            <Route path="/" element={<SystemScreen />} />
-            <Route path="/trading" element={<TradingModeScreen />} />
-            <Route path="/scanner" element={<ScannerScreen />} />
-            <Route path="/intelligence" element={<IntelligenceScreen />} />
-            <Route path="/portfolio" element={<PortfolioScreen />} />
-            <Route path="/research" element={<ResearchScreen />} />
-            <Route path="/risk" element={<RiskScreen />} />
-            <Route path="/ai" element={<AIScreen />} />
-            <Route path="/health" element={<HealthScreen />} />
-            <Route path="/logs" element={<LogsScreen />} />
-            <Route path="/terminal" element={<TerminalScreen />} />
-            <Route path="/config" element={<ConfigScreen />} />
-          </Routes>
+        <main className="flex flex-1 flex-col overflow-y-auto p-6">
+          <SectionTabs />
+          {/* min-h-0 lets the Terminal's h-full actually mean "the rest of the
+              area" instead of overflowing past the tab bar. */}
+          <div className="min-h-0 flex-1">
+            <Routes>
+              <Route path="/" element={<SystemScreen />} />
+              <Route path="/portfolio" element={<PortfolioScreen />} />
+              {/* Health folded into the Overview; keep the old link alive. */}
+              <Route path="/health" element={<Navigate to="/" replace />} />
+
+              <Route path="/research" element={<ResearchScreen />} />
+              <Route path="/scanner" element={<ScannerScreen />} />
+              <Route path="/intelligence" element={<IntelligenceScreen />} />
+              <Route path="/ai" element={<AIScreen />} />
+
+              <Route path="/config" element={<ConfigScreen />} />
+              <Route path="/risk" element={<RiskScreen />} />
+              <Route path="/trading" element={<TradingModeScreen />} />
+
+              <Route path="/terminal" element={<TerminalScreen />} />
+              {/* Logs merged into the Terminal; keep the old link alive. */}
+              <Route path="/logs" element={<Navigate to="/terminal" replace />} />
+            </Routes>
+          </div>
         </main>
       </div>
     </div>

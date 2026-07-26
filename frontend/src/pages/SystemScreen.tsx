@@ -1,11 +1,14 @@
+// The platform's own state: what is running, and is it healthy.
+//
+// The health panel here used to be duplicated by a whole separate Health screen
+// that rendered the same `/health` components. A hardcoded "Services" badge list
+// sat beside it, which looked like status and was in fact a string array — it
+// stayed green while a service was down. Both are gone: the probes below are
+// live, and they are the only claim this screen makes about what is running.
+
 import { useEffect, useState } from "react";
 import { api, type Health, type Status } from "../api/client";
 import { Badge, PageHeader, Panel, Row, StatusDot } from "../ui";
-
-const SERVICES = [
-  "postgres", "redis", "api", "dashboard", "engine",
-  "watchdog", "scheduler", "worker", "notification",
-];
 
 export function SystemScreen() {
   const [status, setStatus] = useState<Status | null>(null);
@@ -13,9 +16,16 @@ export function SystemScreen() {
   const [info, setInfo] = useState<Record<string, unknown> | null>(null);
 
   useEffect(() => {
-    api.status().then(setStatus).catch(() => undefined);
-    api.health().then(setHealth).catch(() => undefined);
-    api.info().then(setInfo).catch(() => undefined);
+    const load = () => {
+      api.status().then(setStatus).catch(() => undefined);
+      api.health().then(setHealth).catch(() => undefined);
+      api.info().then(setInfo).catch(() => undefined);
+    };
+    load();
+    // Health is the reason to be on this screen; a snapshot from page load is
+    // not health, it is a photograph of it.
+    const timer = setInterval(load, 5000);
+    return () => clearInterval(timer);
   }, []);
 
   const contexts = (info?.contexts as string[]) ?? [];
@@ -33,7 +43,7 @@ export function SystemScreen() {
           <Row label="Event bus" value={status?.event_bus_transport ?? "…"} />
         </Panel>
 
-        <Panel title="Aggregate health">
+        <Panel title="Health">
           <div className="mb-3 flex items-center gap-2">
             <StatusDot status={health?.status ?? "unknown"} />
             <span className="text-sm text-gray-200">{health?.status ?? "unknown"}</span>
@@ -44,19 +54,14 @@ export function SystemScreen() {
               label={c.name}
               value={
                 <span className="flex items-center gap-2">
-                  <StatusDot status={c.status} /> {c.detail}
+                  <StatusDot status={c.status} />
+                  <span>{c.status}</span>
+                  <span className="text-xs text-hades-muted">{c.detail}</span>
                 </span>
               }
             />
           ))}
-        </Panel>
-
-        <Panel title={`Services (${SERVICES.length})`}>
-          <div className="flex flex-wrap gap-2">
-            {SERVICES.map((s) => (
-              <Badge key={s}>{s}</Badge>
-            ))}
-          </div>
+          {!health && <p className="text-sm text-hades-muted">Loading…</p>}
         </Panel>
 
         <Panel title={`Bounded contexts (${contexts.length})`}>
