@@ -8,6 +8,8 @@ defaults still apply when nothing is overridden.
 
 from __future__ import annotations
 
+import pytest
+
 from hades.contexts.scanner.infrastructure.sources.dexscreener import DexScreenerSource
 from hades.contexts.scanner.infrastructure.sources.factory import SOURCE_REGISTRY, build_sources
 
@@ -56,3 +58,33 @@ def test_every_registered_source_accepts_an_override() -> None:
     for name in SOURCE_REGISTRY:
         (source,) = build_sources([name], url_overrides={name: f"https://example.test/{name}"})
         assert source.url == f"https://example.test/{name}"
+
+
+# -- endpoints verified against live hosts on 2026-07-26 ----------------------
+
+
+def test_pumpfun_does_not_point_at_the_retired_host() -> None:
+    # frontend-api.pump.fun answers Cloudflare 530 ("origin unreachable"); the
+    # feed moved to frontend-api-v3. The old host left this source permanently
+    # down, which is invisible in a scanner that tolerates a source failing.
+    (source,) = build_sources(["pumpfun"])
+
+    assert "frontend-api-v3.pump.fun" in source.url
+    assert "//frontend-api.pump.fun" not in source.url
+
+
+def test_raydium_uses_a_sort_field_the_api_actually_accepts() -> None:
+    # Raydium v3 takes default/liquidity/volume24h/fee24h/apr24h — never
+    # "created". It answers 500 (not 400) for an unknown field, so every poll
+    # failed and the error read like an outage rather than a bad request.
+    (source,) = build_sources(["raydium"])
+
+    assert "poolSortField=created" not in source.url
+    assert "poolSortField=default" in source.url
+
+
+@pytest.mark.parametrize("name", sorted(SOURCE_REGISTRY))
+def test_every_source_url_is_absolute_https(name: str) -> None:
+    (source,) = build_sources([name])
+
+    assert source.url.startswith("https://")

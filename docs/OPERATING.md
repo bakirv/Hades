@@ -105,6 +105,44 @@ The adapter's **parser is unchanged**, so a substitute endpoint must still retur
 that source's payload shape. If it does not, write an adapter instead and register
 it in `SOURCE_REGISTRY`.
 
+### Endpoint status, verified against live hosts on 2026-07-26
+
+| source | status | note |
+|---|---|---|
+| `dexscreener` | 200 | working |
+| `raydium` | 200 | fixed — `poolSortField=created` is not a value v3 accepts |
+| `pumpfun` | 200 | fixed — moved to `frontend-api-v3`; the old host answers 530 |
+| `orca` | 200 | working |
+| `jupiter` | **404** | endpoint moved or retired; override or leave it out |
+| `meteora` | **404** | endpoint moved or retired; override or leave it out |
+
+A dead default is worse than an obviously-missing one: the scanner tolerates a
+source failing, so a source can be permanently down for months while the platform
+reports itself healthy. If you add or change an adapter, curl the endpoint from a
+real host — the value is only trustworthy when it was checked, and these will rot
+again.
+
+`jupiter` and `meteora` are left pointing at their known-404 URLs on purpose
+rather than replaced with a guess: a wrong URL fails in a way that looks like a
+transient outage, which is harder to debug than a documented dead one.
+
+## Log lines that look alarming and are not
+
+- **`component_no_recovery_action` (debug).** The Watchdog can only reconnect its
+  own Redis/Postgres and reload config. `api`, `dashboard`, `resources` and `rpc`
+  have no action wired there, so it reports it has nothing to try and moves on.
+  The component being down is still alerted on by the health monitor.
+- **`component_recovered component=postgres` on a loop.** The probe is flapping
+  (usually a resource-starved host) and each cycle genuinely reconnects. Worth
+  investigating as a capacity problem, not a correctness one.
+
+And one that *is* a problem: **`no_notifier_for_channel channel=discord`** means
+notifications are being recorded but never delivered — `NOTIFY_DISCORD_ENABLED`
+and `NOTIFY_DISCORD_WEBHOOK_URL` are not reaching the `notification` service.
+Check its startup line: `discord_disabled` confirms it, `notification_ready
+channels=['discord']` means it is wired. It is logged once per channel, not once
+per notification.
+
 ## Debugging "the bot isn't doing anything"
 
 In order, because each step tells you whether the next one is worth taking:
