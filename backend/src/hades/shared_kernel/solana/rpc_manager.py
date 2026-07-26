@@ -32,6 +32,7 @@ from typing import Any, Protocol, runtime_checkable
 import httpx
 
 from hades.shared_kernel.config.settings import RpcEndpointConfig, RpcSettings
+from hades.shared_kernel.errors.describe import describe_exception
 from hades.shared_kernel.errors.exceptions import InfrastructureError
 from hades.shared_kernel.logging import get_logger
 from hades.shared_kernel.observability import MetricsRegistry
@@ -315,10 +316,13 @@ class RpcManager:
         try:
             body = await self._transport.send(state.http_url, payload, timeout=self._timeout)
         except Exception as exc:  # any transport error → failover
-            self._record_failure(state, str(exc))
+            # Timeouts carry no message, so str(exc) would log an empty error and
+            # leave "did it time out or was the host unreachable?" unanswerable.
+            reason = describe_exception(exc)
+            self._record_failure(state, reason)
             self._count(state, "error")
-            _logger.warning("rpc_call_failed", endpoint=state.name, method=method, error=str(exc))
-            return False, None, str(exc)
+            _logger.warning("rpc_call_failed", endpoint=state.name, method=method, error=reason)
+            return False, None, reason
 
         if isinstance(body, dict) and body.get("error") is not None:
             err = str(body["error"])

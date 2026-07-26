@@ -25,6 +25,7 @@ from hades.contexts.scanner.domain.ports import (
 )
 from hades.shared_kernel.config.settings import ScannerSettings
 from hades.shared_kernel.domain.identifiers import new_id
+from hades.shared_kernel.errors.describe import describe_exception
 from hades.shared_kernel.events import EventBus
 from hades.shared_kernel.logging import get_logger
 
@@ -93,8 +94,11 @@ class DiscoveryEngine:
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
-                await self._mark_source(source.name, up=False, detail=str(exc))
-                _logger.warning("discovery_source_error", source=source.name, error=str(exc))
+                # A bare str() on a timeout is the empty string; name the class so
+                # "the source is down" and "the source is slow" stay distinguishable.
+                reason = describe_exception(exc)
+                await self._mark_source(source.name, up=False, detail=reason)
+                _logger.warning("discovery_source_error", source=source.name, error=reason)
                 await self._sleep_or_stop(stop, backoff)
                 backoff = min(_BACKOFF_MAX, backoff * 2)
             else:

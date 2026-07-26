@@ -158,6 +158,55 @@ again.
 rather than replaced with a guess: a wrong URL fails in a way that looks like a
 transient outage, which is harder to debug than a documented dead one.
 
+## When the host is starved (and how to tell)
+
+The platform runs ~9 containers, two of which are Postgres and Redis. Below
+roughly **4 GB of RAM and 4 cores** it does not fail cleanly — it fails as a
+cascade of timeouts that each look like a different bug:
+
+```
+component_recovered component=postgres action=postgres_reconnect   ← every ~20s, forever
+risk_status_publish_failed error=Timeout reading from redis:6379
+pipeline_stage_timeout stage=metadata
+rpc_call_failed endpoint=default method=getAccountInfo error=ConnectTimeout
+```
+
+**A timeout against a local Redis is the tell.** Redis answers in microseconds;
+if the client times out, Redis was never scheduled on the CPU. The same starving
+explains the Postgres flapping, the scanner stage timeouts and the RPC failures —
+one cause, four symptoms, none of which name it.
+
+Two signals make this diagnosable rather than a guessing game:
+
+- `component_flapping` — logged when a component is recovered repeatedly inside
+  a window. A stream of `component_recovered` reads like health and is its
+  opposite: the reconnect succeeding only proves reconnecting is cheap.
+- every logged failure now names its exception class, because `str()` on a
+  timeout is the empty string and `error=` told an operator nothing.
+
+Check the host before suspecting the code:
+
+```bash
+nproc; free -h; df -h /
+docker stats --no-stream
+```
+
+No swap plus a full `available` column is the usual finding. Add swap, give the
+VM/LXC more RAM, or drop the optional profiles — never the `analytics` and
+`observability` profiles at the same time on a small host.
+
+## Data-quality anomalies: `incomplete — missing decimals`
+
+Thousands of these mean the **Solana RPC is failing**, not that the validator is
+wrong. `decimals` comes from `getAccountInfo`; when every provider fails, the
+scanner stores what it has and flags the gap — which is the contract working.
+
+Look for `rpc_metadata_failed ... error=all RPC providers failed`. The usual cause
+is `HADES_SOLANA_RPC_URL` pointing at the free public endpoint
+(`api.mainnet-beta.solana.com`), which rate-limits aggressively and refuses most
+calls. A funded endpoint (Helius, QuickNode, Triton) makes the anomalies stop.
+The already-stored tokens keep their flag until their metadata is collected again.
+
 ## Log lines that look alarming and are not
 
 - **`component_no_recovery_action` (debug).** The Watchdog can only reconnect its

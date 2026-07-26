@@ -21,6 +21,9 @@ Design choices:
 
 from __future__ import annotations
 
+import time
+from collections import defaultdict, deque
+from collections.abc import Callable
 from typing import Protocol, runtime_checkable
 
 from hades.contexts.notification.application.publisher import NotificationPublisher
@@ -108,12 +111,21 @@ class RecoveryOrchestrator:
         notifier: NotificationPublisher,
         metrics: MetricsRegistry | None = None,
         max_attempts: int = 3,
+        flap_threshold: int = 5,
+        flap_window_seconds: float = 300.0,
+        clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self._actions = actions
         self._emergency = emergency
         self._notifier = notifier
         self._max_attempts = max_attempts
         self._attempts: dict[str, int] = {}
+        self._flap_threshold = flap_threshold
+        self._flap_window = flap_window_seconds
+        self._clock = clock
+        #: When each component was last recovered, for flap detection.
+        self._recoveries: dict[str, deque[float]] = defaultdict(deque)
+        self._flapping: set[str] = set()
         self._counter = (
             metrics.counter(
                 "hades_recovery_attempts_total",
@@ -160,7 +172,17 @@ class RecoveryOrchestrator:
             if ok:
                 self._attempts[component] = 0
                 self._count(component, "recovered")
-                _logger.info("component_recovered", component=component, action=action.name)
+                # ``detail`` is why the component was declared unhealthy. Logging the
+                # recovery without it produced an hour of "component_recovered" lines
+                # that never once said what had broken — the operator could see the
+                # cure and never the disease.
+                _logger.info(
+                    "component_recovered",
+                    component=component,
+                    action=action.name,
+                    detail=detail or "unspecified",
+                )
+                self._note_recovery(component, detail)
                 await self._notify_recovered(component, action.name)
                 return True
 
@@ -180,6 +202,48 @@ class RecoveryOrchestrator:
     def reset(self, component: str) -> None:
         """Clear the attempt counter (a component came back healthy on its own)."""
         self._attempts.pop(component, None)
+
+    def is_flapping(self, component: str) -> bool:
+        """True while ``component`` is in a reported flapping episode."""
+        return component in self._flapping
+
+    def _note_recovery(self, component: str, detail: str) -> None:
+        """Record a recovery and shout if the component is *flapping*.
+
+        A successful recovery resets the attempt counter, which is right: the
+        component did come back. But a component that dies and is revived every
+        cycle never exhausts its attempts, never escalates, and produces an
+        unbroken stream of cheerful ``component_recovered`` lines. That reads as
+        health and is its opposite — it is usually the host starving, and the
+        reconnect succeeding says only that reconnecting is cheap.
+
+        So repeated recoveries inside a window are reported as their own event,
+        once per episode, and not repeated until the component settles.
+        """
+        now = self._clock()
+        stamps = self._recoveries[component]
+        stamps.append(now)
+        while stamps and now - stamps[0] > self._flap_window:
+            stamps.popleft()
+
+        if len(stamps) < self._flap_threshold:
+            self._flapping.discard(component)
+            return
+        if component in self._flapping:
+            return  # already reported this episode; do not spam the log
+        self._flapping.add(component)
+        self._count(component, "flapping")
+        _logger.warning(
+            "component_flapping",
+            component=component,
+            recoveries=len(stamps),
+            window_seconds=int(self._flap_window),
+            detail=detail or "unspecified",
+            note=(
+                "recovering repeatedly is not health — check host CPU/memory "
+                "before trusting this component"
+            ),
+        )
 
     async def _run(self, action: RecoveryAction) -> bool:
         try:

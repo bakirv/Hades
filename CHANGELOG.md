@@ -30,6 +30,14 @@ Entries describe what changed for someone *operating* the platform, not the diff
 - **`POSITION_*` thresholds are enforced, not just consulted.** Take-profit,
   stop-loss and trailing settings already existed and were read only to *size*
   trades. Nothing acted on them.
+- **Failures are no longer logged as an empty string.** `str(exc)` is `""` for
+  connection and read timeouts, so real incidents produced `rpc_call_failed …
+  error=` and `discovery_source_error … error=` — lines that say something broke
+  and nothing else. Every failure now names its exception class.
+- **A flapping component is reported as flapping.** A component recovered every
+  cycle resets its attempt counter, never escalates, and emits an unbroken stream
+  of `component_recovered` lines that read like health. Repeated recoveries inside
+  a window now log `component_flapping` once per episode.
 
 ### Added
 

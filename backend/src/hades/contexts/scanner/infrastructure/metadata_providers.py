@@ -16,6 +16,7 @@ import httpx
 
 from hades.contexts.common.domain.value_objects import TokenRef
 from hades.contexts.scanner.domain.models import TokenMetadata
+from hades.shared_kernel.errors.describe import describe_exception
 from hades.shared_kernel.logging import get_logger
 from hades.shared_kernel.solana import RpcManager
 
@@ -39,7 +40,9 @@ class RpcMetadataProvider:
                 [str(token.mint), {"encoding": "jsonParsed"}],
             )
         except Exception as exc:  # provider must never raise
-            _logger.warning("rpc_metadata_failed", mint=str(token.mint), error=str(exc))
+            _logger.warning(
+                "rpc_metadata_failed", mint=str(token.mint), error=describe_exception(exc)
+            )
             return None
         value = (result or {}).get("value") if isinstance(result, dict) else None
         if not isinstance(value, dict):
@@ -86,7 +89,9 @@ class DexScreenerMetadataProvider:
             resp.raise_for_status()
             payload = resp.json()
         except Exception as exc:  # provider must never raise
-            _logger.warning("dexscreener_metadata_failed", mint=str(token.mint), error=str(exc))
+            _logger.warning(
+                "dexscreener_metadata_failed", mint=str(token.mint), error=describe_exception(exc)
+            )
             return None
         pairs = payload.get("pairs") if isinstance(payload, dict) else None
         if not pairs:

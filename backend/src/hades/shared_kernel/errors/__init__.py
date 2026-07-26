@@ -1,5 +1,6 @@
 """Common error hierarchy shared by all contexts."""
 
+from hades.shared_kernel.errors.describe import describe_exception
 from hades.shared_kernel.errors.exceptions import (
     ConcurrencyError,
     ConfigurationError,
@@ -20,4 +21,5 @@ __all__ = [
     "NotFoundError",
     "PermissionDeniedError",
     "ValidationError",
+    "describe_exception",
 ]

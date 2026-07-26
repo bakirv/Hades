@@ -176,3 +176,85 @@ class _CountingAction(_Action):
 
 def _publisher() -> NotificationPublisher:
     return NotificationPublisher(InMemoryEventBus())
+
+
+# -- flapping: recovering over and over is not health ------------------------------
+
+
+async def test_a_component_recovering_repeatedly_is_reported_as_flapping() -> None:
+    # THE regression: a component that dies and is revived every cycle resets its
+    # attempt counter each time, so it never escalates and produces an unbroken
+    # stream of cheerful "component_recovered" lines. On a starved host that ran
+    # for an hour and read as health.
+    emergency, _, _ = _emergency()
+    clock = _Clock()
+    orch = RecoveryOrchestrator(
+        [_Action("reconnect", "postgres", True)],
+        emergency=emergency,
+        notifier=NotificationPublisher(InMemoryEventBus()),
+        flap_threshold=5,
+        flap_window_seconds=300.0,
+        clock=clock,
+    )
+
+    for _ in range(4):
+        assert await orch.recover("postgres", "timeout") is True
+        clock.advance(20.0)
+    assert not orch.is_flapping("postgres")
+
+    await orch.recover("postgres", "timeout")
+
+    assert orch.is_flapping("postgres")
+
+
+async def test_recoveries_spread_out_over_time_are_not_flapping() -> None:
+    emergency, _, _ = _emergency()
+    clock = _Clock()
+    orch = RecoveryOrchestrator(
+        [_Action("reconnect", "postgres", True)],
+        emergency=emergency,
+        notifier=NotificationPublisher(InMemoryEventBus()),
+        flap_threshold=5,
+        flap_window_seconds=300.0,
+        clock=clock,
+    )
+
+    for _ in range(10):
+        await orch.recover("postgres", "timeout")
+        clock.advance(600.0)  # well outside the window
+
+    assert not orch.is_flapping("postgres")
+
+
+async def test_a_settled_component_can_flap_again_later() -> None:
+    emergency, _, _ = _emergency()
+    clock = _Clock()
+    orch = RecoveryOrchestrator(
+        [_Action("reconnect", "redis", True)],
+        emergency=emergency,
+        notifier=NotificationPublisher(InMemoryEventBus()),
+        flap_threshold=3,
+        flap_window_seconds=100.0,
+        clock=clock,
+    )
+
+    for _ in range(3):
+        await orch.recover("redis", "timeout")
+    assert orch.is_flapping("redis")
+
+    clock.advance(1000.0)  # the episode ages out
+    await orch.recover("redis", "timeout")
+    assert not orch.is_flapping("redis")
+
+
+class _Clock:
+    """A monotonic clock the test drives by hand."""
+
+    def __init__(self) -> None:
+        self._now = 0.0
+
+    def __call__(self) -> float:
+        return self._now
+
+    def advance(self, seconds: float) -> None:
+        self._now += seconds
