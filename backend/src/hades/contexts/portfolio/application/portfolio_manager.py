@@ -198,6 +198,10 @@ class PortfolioManager:
     def closed_trades(self) -> tuple[ClosedTrade, ...]:
         return tuple(self._closed)
 
+    def open_positions(self) -> tuple[OpenPositionView, ...]:
+        """The live book, position by position — what the dashboard lists."""
+        return tuple(self._positions.values())
+
     # -- rolling helpers ------------------------------------------------------
 
     def _window_pnl(self, *, days: int) -> float:

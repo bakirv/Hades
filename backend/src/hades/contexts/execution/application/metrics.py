@@ -58,3 +58,20 @@ class ExecutionMetrics:
             "Time to on-chain confirmation (live)",
             buckets=(0.5, 1.0, 2.5, 5.0, 10.0, 20.0, 30.0, 60.0),
         )
+        self.marks = metrics.counter(
+            "hades_execution_position_marks_total",
+            "Open positions marked to market",
+        )
+        self.marks_unpriced = metrics.counter(
+            "hades_execution_position_marks_unpriced_total",
+            "Mark attempts skipped because no price was available",
+        )
+        self.exits = metrics.counter(
+            "hades_execution_position_exits_total",
+            "Exit orders placed by the position monitor, by reason",
+            ("reason",),
+        )
+        self.tracked_positions = metrics.gauge(
+            "hades_execution_tracked_positions",
+            "Positions the monitor is currently marking to market",
+        )

@@ -121,6 +121,7 @@ export function PortfolioScreen() {
   }, []);
 
   const live = status?.live ?? {};
+  const positions = live.positions ?? [];
   const stats = execution?.transaction_stats ?? {};
   const counts = execution?.counts ?? {};
 
@@ -157,6 +158,27 @@ export function PortfolioScreen() {
           hint={`exposure ${pct(live.exposure_pct)}`}
         />
       </div>
+
+      {/* The book itself. Totals alone cannot tell you which position is
+          carrying the PnL — and while nothing marked positions to market, every
+          row here would have read exactly $0.00. */}
+      <Panel title="Open positions">
+        {positions.length === 0 && <Placeholder note="No open positions." />}
+        {positions.map((p) => (
+          <Row
+            key={p.mint}
+            label={`${p.symbol || `${p.mint.slice(0, 4)}…${p.mint.slice(-4)}`} · ${p.strategy}`}
+            value={
+              <span className="flex items-baseline gap-3">
+                <span className="text-hades-muted">{usd(p.notional_usd)}</span>
+                <span className={p.unrealized_pnl_usd >= 0 ? "text-emerald-400" : "text-red-400"}>
+                  {usd(p.unrealized_pnl_usd)} ({pct(p.roi_pct)})
+                </span>
+              </span>
+            }
+          />
+        ))}
+      </Panel>
 
       <div className="grid gap-6 md:grid-cols-2">
         <Panel title="Equity curve">

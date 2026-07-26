@@ -33,6 +33,10 @@ from hades.shared_kernel.logging import get_logger
 
 _logger = get_logger("execution.paper")
 
+#: Floor for a computed fill price — a price of zero would make the quantity
+#: division blow up, and no real market prints one.
+_MIN_PRICE = Decimal("0.000000000000000001")
+
 
 class PaperExecutor:
     """Simulates an order under realistic conditions. Satisfies ``Executor``."""
@@ -78,23 +82,35 @@ class PaperExecutor:
         )
         slip_bps = min(estimate.recommended_bps, request.max_slippage_bps)
 
-        # Slippage moves the effective price against the taker.
+        # Slippage moves the effective price against the taker. Which side of the
+        # notional it lands on differs, and the difference is the whole point:
+        #
+        #   BUY  — the order size is the cash you spend. It is fixed; slippage
+        #          buys you *fewer tokens* for it.
+        #   SELL — the order size is the market value of what you are selling.
+        #          The tokens are fixed; slippage means you *receive less cash*.
+        #
+        # Modelling a sell like a buy (cash received == order size) would make
+        # exit slippage free, and a simulation that hands you a costless exit
+        # reports profits the real market would never have paid.
         slip_factor = Decimal(slip_bps) / Decimal(10_000)
         if request.side is OrderSide.BUY:
-            fill_price = price * (Decimal(1) + slip_factor)
+            fill_price = max(price * (Decimal(1) + slip_factor), _MIN_PRICE)
+            quantity = (notional / fill_price).quantize(_MIN_PRICE)
+            filled_notional = notional
         else:
-            fill_price = price * (Decimal(1) - slip_factor)
-        fill_price = max(fill_price, Decimal("0.000000000000000001"))
+            fill_price = max(price * (Decimal(1) - slip_factor), _MIN_PRICE)
+            quantity = (notional / price).quantize(_MIN_PRICE)
+            filled_notional = quantity * fill_price
 
-        quantity = (notional / fill_price).quantize(Decimal("0.000000000000000001"))
-        fees = self._fees.estimate(notional_usd=notional)
+        fees = self._fees.estimate(notional_usd=filled_notional)
         latency_ms = int((time.monotonic() - started) * 1000)
 
         _logger.info(
             "paper_fill",
             mint=str(request.token.mint),
             side=request.side.value,
-            notional_usd=float(notional),
+            notional_usd=float(filled_notional),
             slippage_bps=slip_bps,
             fee_usd=float(fees.total_usd),
         )
@@ -108,7 +124,7 @@ class PaperExecutor:
             mode=self.mode,
             slippage_bps=slip_bps,
             latency_ms=latency_ms,
-            notional=Money(amount=notional),
+            notional=Money(amount=filled_notional),
             fee_breakdown=fees,
             confirmation=ConfirmationResult(
                 confirmed=True,

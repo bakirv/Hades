@@ -224,6 +224,22 @@ class RiskRuntime:
             "reserve_pct": self._c.settings.risk.liquidity_reserve_pct,
             "available_usd": state.capital.available_usd,
             "metrics": metrics.model_dump(),
+            # The book itself, not just its totals: an operator watching a paper
+            # run needs to see *which* position is carrying the PnL.
+            "positions": [
+                {
+                    "mint": str(p.token.mint),
+                    "symbol": p.token.symbol,
+                    "notional_usd": p.notional_usd,
+                    "unrealized_pnl_usd": p.unrealized_pnl_usd,
+                    "roi_pct": (
+                        (p.unrealized_pnl_usd / p.notional_usd * 100.0) if p.notional_usd else 0.0
+                    ),
+                    "strategy": p.strategy,
+                    "opened_at": p.opened_at.isoformat() if p.opened_at else None,
+                }
+                for p in self._portfolio.open_positions()
+            ],
             "updated_at": time.time(),
         }
         return risk_snapshot, pf_snapshot

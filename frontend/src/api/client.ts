@@ -105,6 +105,17 @@ export interface ScannerStatus {
 
 // --- Portfolio ---------------------------------------------------------------
 
+/** One open position, marked to market by the Position Monitor. */
+export interface OpenPosition {
+  mint: string;
+  symbol?: string | null;
+  notional_usd: number;
+  unrealized_pnl_usd: number;
+  roi_pct: number;
+  strategy: string;
+  opened_at?: string | null;
+}
+
 export interface PortfolioLive {
   starting_balance_usd?: number;
   equity_usd?: number;
@@ -119,6 +130,7 @@ export interface PortfolioLive {
   reserve_pct?: number;
   available_usd?: number;
   metrics?: Record<string, number>;
+  positions?: OpenPosition[];
   updated_at?: number;
 }
 
