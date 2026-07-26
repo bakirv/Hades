@@ -126,6 +126,23 @@ again.
 rather than replaced with a guess: a wrong URL fails in a way that looks like a
 transient outage, which is harder to debug than a documented dead one.
 
+## Log lines that look alarming and are not
+
+- **`component_no_recovery_action` (debug).** The Watchdog can only reconnect its
+  own Redis/Postgres and reload config. `api`, `dashboard`, `resources` and `rpc`
+  have no action wired there, so it reports it has nothing to try and moves on.
+  The component being down is still alerted on by the health monitor.
+- **`component_recovered component=postgres` on a loop.** The probe is flapping
+  (usually a resource-starved host) and each cycle genuinely reconnects. Worth
+  investigating as a capacity problem, not a correctness one.
+
+And one that *is* a problem: **`no_notifier_for_channel channel=discord`** means
+notifications are being recorded but never delivered — `NOTIFY_DISCORD_ENABLED`
+and `NOTIFY_DISCORD_WEBHOOK_URL` are not reaching the `notification` service.
+Check its startup line: `discord_disabled` confirms it, `notification_ready
+channels=['discord']` means it is wired. It is logged once per channel, not once
+per notification.
+
 ## Debugging "the bot isn't doing anything"
 
 In order, because each step tells you whether the next one is worth taking:
