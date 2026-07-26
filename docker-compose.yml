@@ -99,6 +99,15 @@ services:
     restart: unless-stopped
     security_opt:
       - no-new-privileges:true
+    # Six services keep their own pool against this one server. The stock limit
+    # of 100 left no headroom for psql/migrations/backups once every pool was
+    # warm; exhausting it makes the health probe fail and the watchdog "recover"
+    # Postgres on a loop. See POSTGRES_POOL_SIZE in .env.example for the other
+    # half of the arithmetic.
+    command:
+      - "postgres"
+      - "-c"
+      - "max_connections=${POSTGRES_MAX_CONNECTIONS:-200}"
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-hades}
       POSTGRES_USER: ${POSTGRES_USER:-hades}

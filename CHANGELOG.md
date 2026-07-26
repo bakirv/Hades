@@ -34,6 +34,12 @@ Entries describe what changed for someone *operating* the platform, not the diff
   connection and read timeouts, so real incidents produced `rpc_call_failed …
   error=` and `discovery_source_error … error=` — lines that say something broke
   and nothing else. Every failure now names its exception class.
+- **The connection pools no longer exhaust a stock Postgres.** Six services each
+  open their own pool against one server, so the defaults allowed 6 x (10 + 20) =
+  180 connections against a `max_connections` of 100. Under load the server
+  refused new clients, the health probe failed, the watchdog reconnected, and the
+  cycle repeated every twenty seconds forever. Defaults are now 5 + 5 (60 total)
+  and compose raises `max_connections` to 200.
 - **A flapping component is reported as flapping.** A component recovered every
   cycle resets its attempt counter, never escalates, and emits an unbroken stream
   of `component_recovered` lines that read like health. Repeated recoveries inside

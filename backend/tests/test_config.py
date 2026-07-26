@@ -33,3 +33,21 @@ def test_watchdog_watched_roles_parse() -> None:
 def test_live_is_gated_off_by_default() -> None:
     s = get_settings()
     assert s.is_live is False
+
+
+def test_the_connection_pools_fit_inside_a_stock_postgres() -> None:
+    """Pool sizing is a fleet decision, not a per-process one.
+
+    Six services (api, engine, worker, scheduler, notification, watchdog) each
+    open their own pool against the same server. The defaults used to allow
+    6 x (10 + 20) = 180 connections against a stock ``max_connections`` of 100:
+    under load the server refused new clients, the health probe's SELECT 1
+    failed, the watchdog reconnected successfully, and the cycle repeated every
+    twenty seconds — reported to the operator as "component_recovered".
+    """
+    s = get_settings()
+    services_with_a_pool = 6
+    stock_max_connections = 100
+    per_process = s.postgres.pool_size + s.postgres.max_overflow
+
+    assert per_process * services_with_a_pool < stock_max_connections

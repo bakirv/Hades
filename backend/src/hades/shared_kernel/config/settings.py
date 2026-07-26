@@ -64,8 +64,20 @@ class PostgresSettings(_Section):
     db: str = "hades"
     user: str = "hades"
     password: str = "change_me_in_env"
-    pool_size: int = 10
-    max_overflow: int = 20
+    # Pool sizing is a *fleet* decision, not a per-process one. Six processes
+    # (api, engine, worker, scheduler, notification, watchdog) each open their own
+    # pool against the same server, so the ceiling that matters is
+    # ``processes x (pool_size + max_overflow)``.
+    #
+    # The previous defaults (10 + 20) allowed 6 x 30 = 180 connections against a
+    # stock Postgres, whose ``max_connections`` is 100. Under load the pools grew,
+    # the server began refusing with "too many clients already", the health probe's
+    # SELECT 1 failed, the watchdog reconnected successfully — and the whole cycle
+    # repeated every twenty seconds, forever, reported as "component_recovered".
+    #
+    # 6 x (5 + 5) = 60 leaves headroom for psql, migrations and backups.
+    pool_size: int = 5
+    max_overflow: int = 5
 
     def dsn(self) -> str:
         return str(
