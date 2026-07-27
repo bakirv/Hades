@@ -35,6 +35,12 @@ from hades.contexts.execution.domain.events import (
     OrderSubmitted,
 )
 from hades.contexts.execution.domain.models import (
+    TAG_EXIT_REASON,
+    TAG_STOP_LOSS_PCT,
+    TAG_TAKE_PROFIT_PCT,
+    TAG_TRAILING_ACTIVATION_PCT,
+    TAG_TRAILING_DISTANCE_PCT,
+    TAG_TRAILING_ENABLED,
     ExecutionMode,
     FillReport,
     OrderRequest,
@@ -221,14 +227,14 @@ class ExecutionEngine:
             fees_usd=round(entry_fees + exit_fees, 4),
             realized_pnl_usd=round(realized, 4),
             roi_pct=round(roi_pct, 2),
-            reason=request.tags.get("exit_reason", "manual"),
+            reason=request.tags.get(TAG_EXIT_REASON, "manual"),
         )
         await self._bus.publish(
             PositionClosed(
                 aggregate_id=position_id,
                 exit_price=fill.average_price,
                 realized_pnl=Money(amount=Decimal(str(realized))),
-                reason=request.tags.get("exit_reason", "manual"),
+                reason=request.tags.get(TAG_EXIT_REASON, "manual"),
             )
         )
 
@@ -268,9 +274,18 @@ class ExecutionEngine:
         return self._executors.get(mode, self._executors[ExecutionMode.PAPER.value])
 
     def _build_request(self, event: TradeApproved) -> OrderRequest:
+        sizing = event.sizing
         tags = {
             "strategy": event.strategy,
             "regime": event.regime,
+            # The approved exit envelope rides along to the position, which is
+            # what lets the Position Monitor close this trade later without
+            # re-deriving (or re-deciding) anything the Risk Manager settled.
+            TAG_TAKE_PROFIT_PCT: str(sizing.take_profit.value),
+            TAG_STOP_LOSS_PCT: str(sizing.stop_loss.value),
+            TAG_TRAILING_ENABLED: "true" if sizing.trailing_enabled else "false",
+            TAG_TRAILING_ACTIVATION_PCT: str(sizing.trailing_activation.value),
+            TAG_TRAILING_DISTANCE_PCT: str(sizing.trailing_distance.value),
         }
         if event.developer:
             tags["developer"] = event.developer

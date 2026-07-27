@@ -53,6 +53,56 @@ position_closed  mint=… symbol=BONK entry_usd=… exit_usd=… fees_usd=… re
 These appear in the dashboard terminal, in `trading.log`, and — with Discord
 enabled — in your channel.
 
+### Positions are marked and exited by the Position Monitor
+
+The exit half of the lifecycle runs in the **worker**, inside the Execution
+runtime. Every `EXECUTION_POSITION_MONITOR_INTERVAL_SECONDS` it prices the open
+book in one batched request, publishes a `PositionUpdated` per position (this is
+what moves unrealised PnL and therefore equity), and issues a SELL when a level
+the Risk Manager already approved is crossed:
+
+```
+position_exit_triggered  position_id=… mint=… reason=take_profit entry_price=… mark_price=… notional_usd=…
+```
+
+`reason` is one of `take_profit`, `stop_loss` or `trailing_stop`. The envelope
+comes from the approval itself and travels on the position's tags — the monitor
+decides nothing, it only detects a crossing and executes the exit already
+authorised. An exit is deliberately **never** blocked by the kill switch,
+circuit breaker or emergency mode: those withhold *entries*, and trapping the
+platform in a losing position is the one way a brake could destroy capital.
+
+If the balance never moves and you see no `position_exit_triggered` lines, check
+in this order:
+
+1. `EXECUTION_POSITION_MONITOR_ENABLED` and `MARKET_PRICE_ORACLE_ENABLED` are
+   both on. The monitor is not built without a price oracle, and the startup
+   line says so: `position_monitor_not_built`.
+2. `execution_runtime_started … price_oracle=true position_monitor=true`.
+3. `price_fetch_failed` in the worker log — the price endpoint is unreachable, so
+   nothing can be marked. Positions are held, never blind-sold.
+4. The execution status snapshot exposes `positions_monitored`; if it is 0 while
+   the portfolio shows open positions, they were opened before the monitor
+   started (it learns the book from the `PositionOpened` stream, and a restart
+   rebuilds cash and positions from `portfolio_state` but not the monitor's own
+   registry).
+
+### The book survives a restart
+
+`portfolio_state` holds the live book — cash, realised PnL, peak equity and the
+open positions — as one row per trading mode, written on every recompute and
+read back on startup:
+
+```
+portfolio_restored  cash_usd=… realized_pnl_usd=… open_positions=… saved_at=…
+```
+
+Before this table existed the Portfolio Manager was purely in-memory, so a worker
+restart silently reset cash to `PAPER_STARTING_BALANCE_USD`. If the balance keeps
+returning to exactly the starting figure, look for a restart loop — and note that
+the **configured** starting balance always wins over the stored one, so raising
+`PAPER_STARTING_BALANCE_USD` still takes effect.
+
 ### `/health` answers what is actually alive
 
 It reports the API, every dependency probe (Postgres, Redis, RPC, ClickHouse) and
@@ -156,8 +206,14 @@ In order, because each step tells you whether the next one is worth taking:
 5. Committee predicting but never trading? Check the Risk Manager: it is the only
    component that authorises a trade, it is fail-closed (any exception rejects),
    and it runs Kill Switch / Circuit Breaker / Emergency Mode *before* any
-   token-specific logic. `/api/v1/risk` shows its posture.
+   token-specific logic. `/api/v1/risk` shows its posture. Rejections are
+   labelled by the rule that vetoed them — `LOW_SECURITY_SCORE`,
+   `LOW_PROBABILITY`, `LOW_CONFIDENCE` — and the facts behind them now come from
+   the Security Engine's actual verdict rather than the committee's own
+   probabilities, so a `LOW_SECURITY_SCORE` describes the token.
 6. `MODELS 0` on the AI page is normal until training produces a candidate — the
    committee runs on documented default priors. Identical probabilities across
    *every* token mean the features are not varying, which is a scanner/feature
    problem, not a committee problem.
+7. Trading but the balance never moves? That is the *exit* half, not the entry
+   half — see "Positions are marked and exited by the Position Monitor" above.

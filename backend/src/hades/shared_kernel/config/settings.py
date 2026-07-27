@@ -392,6 +392,33 @@ class PositionSettings(_Section):
     trailing_distance_pct: float = 10
 
 
+class MarketSettings(_Section):
+    """The price feed that marks open positions to market.
+
+    Without a price oracle the Paper Executor falls back to a unit price
+    (quantity == USD), which keeps *costs* honest but makes every entry price
+    1.0 — and a take-profit measured against 1.0 is meaningless. This section
+    wires a real one.
+
+    ``price_source_url`` is the batch token endpoint a mint list is appended to;
+    the parser expects DexScreener's payload shape. Point it at a mirror or a
+    proxy freely, but a substitute must return that shape or the oracle simply
+    reports no price (and the platform degrades, it does not break).
+    """
+
+    model_config = SettingsConfigDict(env_prefix="MARKET_", extra="ignore", env_file=".env")
+
+    price_oracle_enabled: bool = True
+    price_source_url: str = "https://api.dexscreener.com/latest/dex/tokens/"
+    # A quote is reused for this long before the oracle re-fetches. Position
+    # monitoring polls far more often than prices meaningfully move, and the
+    # upstream endpoint is unauthenticated and rate-limited.
+    price_cache_ttl_seconds: float = 15.0
+    price_timeout_seconds: float = 8.0
+    # DexScreener accepts up to 30 comma-separated mints per request.
+    price_batch_size: int = 30
+
+
 class ExecutionSettings(_Section):
     """Execution Engine tuning — shared by the paper and live executors.
 
@@ -421,6 +448,11 @@ class ExecutionSettings(_Section):
     quote_mint: str = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
     # How often the runtime publishes its execution status snapshot to Redis.
     status_interval_seconds: float = 5.0
+    # The Position Monitor: marks open positions to market and fires the
+    # approved take-profit / stop-loss / trailing exits. Disabling it means
+    # positions are opened and never closed — leave it on.
+    position_monitor_enabled: bool = True
+    position_monitor_interval_seconds: float = 5.0
 
 
 class PaperSettings(_Section):
@@ -749,6 +781,7 @@ class Settings(BaseSettings):
     security: SecuritySettings = Field(default_factory=SecuritySettings)
     risk: RiskSettings = Field(default_factory=RiskSettings)
     position: PositionSettings = Field(default_factory=PositionSettings)
+    market: MarketSettings = Field(default_factory=MarketSettings)
     execution: ExecutionSettings = Field(default_factory=ExecutionSettings)
     paper: PaperSettings = Field(default_factory=PaperSettings)
     notification: NotificationSettings = Field(default_factory=NotificationSettings)
